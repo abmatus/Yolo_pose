@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>AI Vision Pro</title>
+    
     <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
     
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
@@ -108,8 +111,8 @@
         }
         .action-btn.secondary { background: rgba(255,255,255,0.15); color: white; }
 
-        /* Toggle Switch Style */
-        .switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+        /* Toggle Switch Style (NEU) */
+        .switch { position: relative; display: inline-block; width: 50px; height: 26px; margin-left: 10px; }
         .switch input { opacity: 0; width: 0; height: 0; }
         .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.2); transition: .4s; border-radius: 34px; }
         .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
@@ -223,7 +226,7 @@
 
             <div class="info-section">
                 <div class="info-title">Einstellungen</div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
                     <span class="info-text" style="margin:0;">Gelenkwinkel anzeigen</span>
                     <label class="switch">
                         <input type="checkbox" id="toggle-angles">
@@ -267,15 +270,6 @@ yolo export model=best.pt format=tfjs</div>
                     <li><strong>Foto:</strong> Der weiße Auslöser speichert das Bild inkl. AI-Boxen.</li>
                     <li><strong>Modus:</strong> Tippe unten auf die Namen (POSE / OBJECT), um zu wechseln.</li>
                 </ul>
-            </div>
-
-            <div class="info-section">
-                <div class="info-title">Über die Standard-Modelle</div>
-                <div class="info-text">
-                    <strong>MoveNet (Pose):</strong> Erkennt 17 Körperpunkte in Echtzeit. Ideal für Sport & Bewegung.
-                    <br><br>
-                    <strong>Coco-SSD (Object):</strong> Erkennt 80 Standard-Objekte wie Person, Auto, Handy, Tasse, etc.
-                </div>
             </div>
             
         </div>
@@ -358,7 +352,7 @@ yolo export model=best.pt format=tfjs</div>
         let lastFrameTime = 0;
         let torchOn = false;
         
-        // Settings State
+        // Settings State (NEU)
         let showAngles = false;
 
         async function init() {
@@ -457,33 +451,25 @@ yolo export model=best.pt format=tfjs</div>
 
         // --- YOLO Post-Processing ---
         async function runYoloCustom(model, videoEl) {
-            // 1. Preprocessing
             const tfImg = tf.tidy(() => {
                 const img = tf.browser.fromPixels(videoEl);
                 return tf.image.resizeBilinear(img, [640, 640]).div(255.0).expandDims(0);
             });
 
-            // 2. Inference
             const outputTensor = model.predict(tfImg);
             
-            // 3. Post-Processing (YOLOv8 Output Decoding)
-            // Output shape is typically [1, 4+classes, 8400] -> e.g. [1, 84, 8400]
             const predictions = await tf.tidy(() => {
-                const output = outputTensor.squeeze(); // [84, 8400]
+                const output = outputTensor.squeeze(); 
                 const [features, anchors] = output.shape;
                 
-                // Transpose to [8400, 84] to have [anchors, features]
                 const transposed = output.transpose([1, 0]); 
                 
-                // Extract boxes (x,y,w,h) and scores
-                const boxes = transposed.slice([0, 0], [anchors, 4]); // [8400, 4]
-                const scores = transposed.slice([0, 4], [anchors, features - 4]); // [8400, 80]
+                const boxes = transposed.slice([0, 0], [anchors, 4]); 
+                const scores = transposed.slice([0, 4], [anchors, features - 4]); 
                 
-                // Get max score and class index for each anchor
                 const maxScores = scores.max(1);
                 const classes = scores.argMax(1);
                 
-                // Box conversion (cx, cy, w, h) -> (y1, x1, y2, x2) for NMS
                 const x = boxes.slice([0, 0], [anchors, 1]);
                 const y = boxes.slice([0, 1], [anchors, 1]);
                 const w = boxes.slice([0, 2], [anchors, 1]);
@@ -494,15 +480,13 @@ yolo export model=best.pt format=tfjs</div>
                 const x2 = x.add(w.div(2));
                 const y2 = y.add(h.div(2));
                 
-                // TensorFlow NMS expects [y1, x1, y2, x2]
                 const nmsBoxes = tf.concat([y1, x1, y2, x2], 1);
                 
                 return { nmsBoxes, maxScores, classes };
             });
 
-            // 4. Non-Max Suppression
-            const nmsThreshold = 0.5; // Overlap threshold
-            const scoreThreshold = 0.35; // Confidence threshold
+            const nmsThreshold = 0.5;
+            const scoreThreshold = 0.35; 
             const maxOutputSize = 20;
 
             const nmsIndices = await tf.image.nonMaxSuppressionAsync(
@@ -513,14 +497,12 @@ yolo export model=best.pt format=tfjs</div>
                 scoreThreshold
             );
 
-            // 5. Gather Final Results
             const resultData = {
                 boxes: await predictions.nmsBoxes.gather(nmsIndices).array(),
                 scores: await predictions.maxScores.gather(nmsIndices).array(),
                 classes: await predictions.classes.gather(nmsIndices).array()
             };
 
-            // Cleanup tensors
             tfImg.dispose();
             outputTensor.dispose();
             tf.dispose(predictions); 
@@ -597,7 +579,6 @@ yolo export model=best.pt format=tfjs</div>
                 ctx.shadowColor = 'black';
                 ctx.shadowBlur = 4;
 
-                // MoveNet IDs: 5=L_Shoulder, 7=L_Elbow, 9=L_Wrist, 11=L_Hip, 13=L_Knee, 15=L_Ankle
                 const joints = [
                     { name: 'r_arm', pts: [6, 8, 10] },  
                     { name: 'l_arm', pts: [5, 7, 9] },   
@@ -635,7 +616,6 @@ yolo export model=best.pt format=tfjs</div>
             const scaleY = canvas.height / 640;
 
             results.boxes.forEach((box, i) => {
-                // box is [y1, x1, y2, x2] from TF (normalized 0-640)
                 const y1 = box[0] * scaleY;
                 const x1 = box[1] * scaleX;
                 const y2 = box[2] * scaleY;
@@ -675,7 +655,7 @@ yolo export model=best.pt format=tfjs</div>
             setTimeout(() => infoOverlay.style.display = 'none', 300);
         });
         
-        // Toggle Angle Setting
+        // Toggle Angle Setting (NEU)
         document.getElementById('toggle-angles').addEventListener('change', (e) => {
             showAngles = e.target.checked;
         });
