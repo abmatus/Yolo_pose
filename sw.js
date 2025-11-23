@@ -1,16 +1,16 @@
-// ÄNDERE v1 ZU v2 (oder höher), damit der Browser Updates lädt!
-const CACHE_NAME = 'pose-cam-v4'; 
+// VERSION v5 - Update erzwingen
+const CACHE_NAME = 'pose-cam-v5'; 
 
 const urlsToCache = [
   './',
   './index.html',
   './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
+  './assets/icons/icon-192.png',
+  './assets/icons/icon-512.png'
 ];
 
 self.addEventListener('install', event => {
-  self.skipWaiting(); // Zwingt den neuen Service Worker sofort aktiv zu werden
+  self.skipWaiting(); 
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => cache.addAll(urlsToCache))
@@ -18,7 +18,6 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-  // Löscht alte Caches, damit Speicherplatz frei wird und keine alten Versionen laden
   event.waitUntil(
     caches.keys().then(cacheNames => {
       return Promise.all(
@@ -30,7 +29,7 @@ self.addEventListener('activate', event => {
       );
     })
   );
-  return self.clients.claim(); // Übernimmt sofort die Kontrolle über offene Tabs
+  return self.clients.claim();
 });
 
 self.addEventListener('fetch', event => {
