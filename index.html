@@ -3,188 +3,235 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>AI Vision</title>
+    <title>AI Vision Pro</title>
     <link rel="manifest" href="manifest.json">
     
+    <!-- TensorFlow.js Libraries -->
+    <!-- WICHTIG: Core muss vor den Backends geladen werden -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <!-- CPU Backend (Fallback zwingend nötig für Coco-SSD!) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu"></script>
+    <!-- WebGL Backend (Für Performance) -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    
+    <!-- Models -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
     <style>
         :root {
-            --accent: #32D74B; /* iOS Green */
-            --glass: rgba(28, 28, 30, 0.65);
-            --glass-border: rgba(255, 255, 255, 0.1);
-            --text: #ffffff;
+            --accent: #FFD60A; /* Cyber Yellow */
+            --bg-glass: rgba(0, 0, 0, 0.4);
+            --text-active: #ffffff;
+            --text-inactive: rgba(255, 255, 255, 0.5);
             --safe-top: env(safe-area-inset-top, 20px);
             --safe-bottom: env(safe-area-inset-bottom, 20px);
         }
 
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
         body { 
             margin: 0; background: #000; overflow: hidden; height: 100vh; 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            -webkit-tap-highlight-color: transparent;
             user-select: none;
+            touch-action: manipulation;
         }
 
-        /* --- Layers --- */
-        #view-container { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; background: #000;}
+        /* --- Fullscreen Viewfinder --- */
+        #view-container { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: #000; z-index: 1;
+        }
         
-        video { position: absolute; height: 100%; width: 100%; object-fit: cover; }
-        canvas { position: absolute; height: 100%; width: 100%; object-fit: cover; }
+        video { 
+            width: 100%; height: 100%; object-fit: cover; 
+            transform: scale(1.0); transition: transform 0.3s;
+        }
+        
+        canvas { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            object-fit: cover; pointer-events: none;
+        }
 
-        /* Flash Effekt für Snapshot */
-        #flash {
+        /* --- Flash Overlay Effect --- */
+        #flash-overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: white; opacity: 0; pointer-events: none; z-index: 50;
-            transition: opacity 0.1s;
+            background: white; opacity: 0; pointer-events: none; z-index: 100;
+            transition: opacity 0.1s ease-out;
         }
 
-        /* --- UI Overlay --- */
-        #ui-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20;
+        /* --- HUD Layer --- */
+        #hud {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
             display: flex; flex-direction: column; justify-content: space-between;
-            pointer-events: none;
+            pointer-events: none; /* Klicks gehen durch */
         }
 
-        /* --- Header / Segmented Control --- */
-        .header {
-            padding-top: calc(var(--safe-top) + 10px);
-            display: flex; justify-content: center;
+        /* Top Bar */
+        .top-controls {
+            padding: calc(var(--safe-top) + 10px) 20px 0;
+            display: flex; justify-content: space-between; align-items: center;
             pointer-events: auto;
         }
 
-        .segmented-control {
-            background: var(--glass);
-            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-            padding: 4px; border-radius: 100px;
-            display: flex; gap: 5px;
-            border: 1px solid var(--glass-border);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-        }
-
-        .seg-btn {
-            background: transparent; border: none; color: rgba(255,255,255,0.6);
-            padding: 8px 20px; border-radius: 100px; font-weight: 600; font-size: 13px;
-            cursor: pointer; transition: 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        }
-
-        .seg-btn.active {
-            background: rgba(255,255,255,0.15); color: #fff;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        }
-
-        /* --- Footer Controls --- */
-        .footer {
-            padding-bottom: calc(var(--safe-bottom) + 30px);
-            display: flex; justify-content: center; align-items: center; gap: 40px;
-            pointer-events: auto;
-            background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
-        }
-
-        .control-btn {
-            width: 45px; height: 45px; border-radius: 50%;
-            background: var(--glass); backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border);
-            color: white; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; transition: transform 0.1s;
-        }
-        .control-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.2); }
-        .control-btn svg { width: 20px; height: 20px; fill: currentColor; }
-
-        /* Shutter Button */
-        #shutter-btn {
-            width: 72px; height: 72px; border-radius: 50%;
-            background: transparent; border: 4px solid white;
+        .icon-btn {
+            background: rgba(0,0,0,0.3); backdrop-filter: blur(10px);
+            border: none; border-radius: 50%; width: 44px; height: 44px;
             display: flex; align-items: center; justify-content: center;
-            cursor: pointer;
+            color: white; cursor: pointer; transition: 0.2s;
         }
-        #shutter-inner {
-            width: 60px; height: 60px; border-radius: 50%; background: white;
+        .icon-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.2); }
+        .icon-btn svg { width: 24px; height: 24px; fill: white; }
+
+        #fps-badge {
+            font-size: 12px; font-weight: 700; color: var(--accent);
+            background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px;
+            font-family: monospace; letter-spacing: 1px;
+        }
+
+        /* Bottom Controls */
+        .bottom-controls {
+            padding-bottom: calc(var(--safe-bottom) + 30px);
+            background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
+            display: flex; flex-direction: column; align-items: center; gap: 20px;
+            pointer-events: auto;
+        }
+
+        /* Mode Selector (Text Slider style) */
+        .mode-selector {
+            display: flex; gap: 30px; margin-bottom: 10px;
+        }
+        .mode-item {
+            font-size: 13px; font-weight: 600; letter-spacing: 1px;
+            color: var(--text-inactive); text-transform: uppercase;
+            cursor: pointer; transition: 0.3s; padding: 5px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .mode-item.active {
+            color: var(--accent); transform: scale(1.1);
+        }
+
+        /* Shutter Area */
+        .shutter-row {
+            display: flex; align-items: center; justify-content: center; width: 100%;
+            position: relative;
+        }
+
+        .shutter-btn {
+            width: 80px; height: 80px; border-radius: 50%;
+            border: 4px solid white; background: transparent;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: 0.2s; z-index: 20;
+        }
+        .shutter-inner {
+            width: 68px; height: 68px; border-radius: 50%; background: white;
             transition: 0.2s;
         }
-        #shutter-btn:active #shutter-inner { transform: scale(0.85); opacity: 0.8; }
+        .shutter-btn:active .shutter-inner { transform: scale(0.9); opacity: 0.8; }
 
-        /* FPS Pill */
-        #fps-pill {
-            position: absolute; top: calc(var(--safe-top) + 20px); right: 20px;
-            background: rgba(0,0,0,0.5); color: rgba(255,255,255,0.8);
-            padding: 4px 8px; border-radius: 6px; font-size: 10px; font-family: monospace;
-            pointer-events: none; backdrop-filter: blur(5px);
+        /* Switch Cam Button (rechts vom Shutter) */
+        .switch-btn-container {
+            position: absolute; right: 40px;
         }
 
-        /* --- Loading Screen --- */
-        #splash {
+        /* Loading Screen */
+        #loader {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; z-index: 100; display: flex; flex-direction: column;
+            background: #000; z-index: 200; display: flex; flex-direction: column;
             justify-content: center; align-items: center; transition: opacity 0.5s;
         }
-        .loader-ring {
-            width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1);
-            border-top: 3px solid var(--accent); border-radius: 50%;
-            animation: spin 1s linear infinite; margin-bottom: 20px;
+        .spinner {
+            width: 50px; height: 50px; border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent); border-radius: 50%;
+            animation: spin 0.8s linear infinite;
         }
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-        .splash-text { font-size: 14px; color: #666; font-weight: 500; letter-spacing: 0.5px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loader-text { margin-top: 20px; color: #666; font-size: 12px; letter-spacing: 2px; }
 
     </style>
 </head>
 <body>
 
-    <div id="splash">
-        <div class="loader-ring"></div>
-        <div class="splash-text">INITIALIZING AI CORE</div>
+    <!-- Loading Screen -->
+    <div id="loader">
+        <div class="spinner"></div>
+        <div class="loader-text">AI MODULE LOADING</div>
     </div>
 
+    <!-- Viewfinder -->
     <div id="view-container">
         <video id="video" playsinline muted autoplay></video>
         <canvas id="output"></canvas>
-        <div id="flash"></div>
     </div>
+    
+    <!-- Flash Animation -->
+    <div id="flash-overlay"></div>
 
-    <div id="ui-layer">
+    <!-- UI Overlay -->
+    <div id="hud">
         
-        <div class="header">
-            <div class="segmented-control">
-                <button class="seg-btn active" data-model="pose">Pose</button>
-                <button class="seg-btn" data-model="object">Object</button>
-            </div>
+        <!-- Top Bar -->
+        <div class="top-controls">
+            <button class="icon-btn" id="btn-flash">
+                <!-- Flash Icon (Off) -->
+                <svg id="icon-flash-off" viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+            </button>
+            <div id="fps-badge">AI READY</div>
+            <button class="icon-btn" id="btn-info">
+                <!-- Info Icon -->
+                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+            </button>
         </div>
 
-        <div id="fps-pill">FPS: 0</div>
-
-        <div class="footer">
-            <div class="control-btn" id="btn-switch">
-                <svg viewBox="0 0 24 24"><path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-5 11.5V13H9v2.5L5.5 12 9 8.5V11h6V8.5l3.5 3.5-3.5 3.5z"/></svg>
+        <!-- Bottom Bar -->
+        <div class="bottom-controls">
+            
+            <!-- Mode Selector -->
+            <div class="mode-selector">
+                <div class="mode-item active" data-mode="pose">BODY POSE</div>
+                <div class="mode-item" data-mode="object">OBJECTS</div>
             </div>
 
-            <div id="shutter-btn">
-                <div id="shutter-inner"></div>
+            <!-- Shutter Row -->
+            <div class="shutter-row">
+                <div class="shutter-btn" id="btn-shutter">
+                    <div class="shutter-inner"></div>
+                </div>
+
+                <div class="switch-btn-container">
+                    <button class="icon-btn" id="btn-switch-cam" style="background: rgba(255,255,255,0.1);">
+                        <svg viewBox="0 0 24 24"><path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-5 11.5V13H9v2.5L5.5 12 9 8.5V11h6V8.5l3.5 3.5-3.5 3.5z"/></svg>
+                    </button>
+                </div>
             </div>
 
-            <div class="control-btn" id="btn-info" style="opacity:0.5;"> <svg viewBox="0 0 24 24"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg>
-            </div>
         </div>
     </div>
 
     <script>
-        // PWA Setup
-        if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
+        // PWA Helper: Nur registrieren, wenn Protokoll unterstützt wird (http/https),
+        // sonst wirft die Preview-Umgebung (blob:) Fehler.
+        if ('serviceWorker' in navigator && (window.location.protocol.indexOf('http') === 0)) {
+            navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('Service Worker registriert'))
+                .catch(err => console.log('SW Fail (Kann in Dev ignoriert werden):', err));
+        }
 
-        // Elements
+        // --- Elements ---
         const video = document.getElementById('video');
         const canvas = document.getElementById('output');
         const ctx = canvas.getContext('2d');
-        const splash = document.getElementById('splash');
-        const fpsPill = document.getElementById('fps-pill');
-        const flash = document.getElementById('flash');
+        const loader = document.getElementById('loader');
+        const flashOverlay = document.getElementById('flash-overlay');
+        const fpsBadge = document.getElementById('fps-badge');
         
         // Buttons
-        const segBtns = document.querySelectorAll('.seg-btn');
-        const switchBtn = document.getElementById('btn-switch');
-        const shutterBtn = document.getElementById('shutter-btn');
+        const modeItems = document.querySelectorAll('.mode-item');
+        const shutterBtn = document.getElementById('btn-shutter');
+        const switchBtn = document.getElementById('btn-switch-cam');
+        const flashBtn = document.getElementById('btn-flash');
+        const viewContainer = document.getElementById('view-container');
 
         // State
         let detector;
@@ -192,28 +239,30 @@
         let facingMode = 'environment';
         let currentStream = null;
         let lastFrameTime = 0;
-        let frameCount = 0;
+        let torchOn = false;
 
-        // --- Core Logic ---
-
+        // --- Initialization ---
         async function init() {
+            // WICHTIG: WebGL Backend priorisieren, aber CPU muss geladen sein (siehe Head-Tags)
             await tf.setBackend('webgl');
-            await setupCamera();
-            await loadModel('pose');
             
-            // UI Ready
-            splash.style.opacity = '0';
-            setTimeout(() => splash.style.display = 'none', 500);
-            render();
+            // Erst Kamera starten
+            await setupCamera();
+            
+            // Dann Modell laden (während Kamera schon läuft)
+            loadModel('pose'); 
         }
 
+        // --- Camera & Torch ---
         async function setupCamera() {
-            if (currentStream) currentStream.getTracks().forEach(t => t.stop());
-            
+            if (currentStream) {
+                currentStream.getTracks().forEach(t => t.stop());
+            }
+
             const constraints = {
                 video: {
                     facingMode: facingMode,
-                    width: { ideal: 1280 }, // HD Auflösung
+                    width: { ideal: 1280 },
                     height: { ideal: 720 }
                 },
                 audio: false
@@ -223,7 +272,7 @@
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 currentStream = stream;
                 video.srcObject = stream;
-                
+
                 return new Promise((resolve) => {
                     video.onloadedmetadata = () => {
                         canvas.width = video.videoWidth;
@@ -232,47 +281,101 @@
                     };
                 });
             } catch (err) {
-                console.error(err);
-                alert('Kamera konnte nicht gestartet werden.');
+                console.error("Camera fail", err);
+                if (window.self === window.top) {
+                   alert("Kamera-Zugriff verweigert oder nicht verfügbar.");
+                }
             }
         }
 
+        async function toggleTorch() {
+            if (!currentStream) return;
+            const track = currentStream.getVideoTracks()[0];
+            const capabilities = track.getCapabilities();
+
+            // Check if torch is supported
+            if (capabilities && capabilities.torch) {
+                torchOn = !torchOn;
+                try {
+                    await track.applyConstraints({
+                        advanced: [{ torch: torchOn }]
+                    });
+                    
+                    // UI Update nach Erfolg
+                    flashBtn.style.color = torchOn ? '#FFD60A' : 'white';
+                    const iconPath = torchOn 
+                        ? "M7 2v11h3v9l7-12h-4l4-8z" 
+                        : "M3.27 3L2 4.27l5 5V13h3v9l3.58-6.14L17.73 20 19 18.73 3.27 3zM7 2v11h3v9l7-12h-4l4-8z"; // Simuliertes "Off" icon, hier vereinfacht
+                    
+                    // Bei echtem Blitz-Icon-Wechsel bräuchten wir zwei SVG Pfade
+                    if(torchOn) {
+                         flashBtn.style.backgroundColor = "rgba(255, 214, 10, 0.2)";
+                    } else {
+                         flashBtn.style.backgroundColor = "rgba(0,0,0,0.3)";
+                    }
+
+                } catch (e) {
+                    console.error("Torch error", e);
+                }
+            } else {
+                alert("Blitz nicht verfügbar auf diesem Gerät/Kamera.");
+            }
+        }
+
+        // --- AI Models ---
         async function loadModel(type) {
             currentModel = type;
-            
-            // Haptik Feedback
-            if(navigator.vibrate) navigator.vibrate(20);
+            fpsBadge.innerText = "LOADING AI...";
+            fpsBadge.style.color = "white";
 
-            if(detector) {
+            // Cleanup old model
+            if (detector) {
                 if(detector.dispose) detector.dispose();
                 detector = null;
             }
 
-            if (type === 'pose') {
-                const model = poseDetection.SupportedModels.MoveNet;
-                detector = await poseDetection.createDetector(model, {
-                    modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
-                });
-            } else {
-                detector = await cocoSsd.load();
+            // Kurze Pause für UI Render
+            await new Promise(r => setTimeout(r, 50));
+
+            try {
+                if (type === 'pose') {
+                    const model = poseDetection.SupportedModels.MoveNet;
+                    detector = await poseDetection.createDetector(model, {
+                        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
+                    });
+                } else {
+                    // CocoSSD benötigt manchmal explizit geladene Backends
+                    detector = await cocoSsd.load();
+                }
+
+                // Loader verstecken wenn erstes Modell fertig
+                if(loader.style.display !== 'none') {
+                    loader.style.opacity = 0;
+                    setTimeout(() => loader.style.display = 'none', 500);
+                }
+                
+                render();
+            } catch (err) {
+                console.error("Model load error:", err);
+                fpsBadge.innerText = "ERROR";
+                alert("Fehler beim Laden des AI Modells: " + err.message);
             }
         }
 
-        // --- Rendering ---
-
+        // --- Render Loop ---
         async function render() {
+            if (!detector) return;
+
             const now = performance.now();
-            if(now - lastFrameTime >= 1000) {
-               // Simple FPS counter
-               // fpsPill.innerText = `FPS: ${Math.round(1000 / (now - lastFrameTime))}`; 
+            if(now - lastFrameTime > 500) { // Update FPS every 500ms
+                 const fps = Math.round(1000 / (now - lastFrameTime));
+                 fpsBadge.innerText = currentModel === 'pose' ? 'ACTIVE: POSE' : 'ACTIVE: OBJECT';
+                 fpsBadge.style.color = 'var(--accent)';
             }
             lastFrameTime = now;
 
-            if (video.readyState === 4 && detector) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height); // Nur AI zeichnen, Video ist Hintergrund
-                
-                // Wir zeichnen das Video NICHT auf den Canvas, um Performance zu sparen.
-                // Das Video Element liegt dahinter. Wir zeichnen nur die Overlays.
+            if (video.readyState === 4) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
                 
                 try {
                     if (currentModel === 'pose') {
@@ -282,23 +385,26 @@
                         const predictions = await detector.detect(video);
                         drawObjects(predictions);
                     }
-                } catch(e) { console.log(e); }
+                } catch(e) { 
+                    console.warn(e); 
+                }
             }
             requestAnimationFrame(render);
         }
 
-        // --- Drawing Helpers (Modern Style) ---
-
+        // --- Drawing (Modern Neon Style) ---
         function drawPose(keypoints) {
             const minConf = 0.3;
+            const connections = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
+            
+            ctx.shadowColor = '#FFD60A';
+            ctx.shadowBlur = 10;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
 
-            // Verbindungen
-            const connections = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
+            // Lines
             ctx.lineWidth = 4;
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; // Weisse Linien
-            
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
             connections.forEach(([i, j]) => {
                 const kp1 = keypoints[i];
                 const kp2 = keypoints[j];
@@ -310,102 +416,116 @@
                 }
             });
 
-            // Punkte (Joints)
+            // Joints
+            ctx.fillStyle = '#FFD60A'; // Neon Yellow
             keypoints.forEach(kp => {
                 if (kp.score > minConf) {
                     ctx.beginPath();
                     ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
-                    ctx.fillStyle = '#32D74B'; // iOS Green
                     ctx.fill();
-                    ctx.lineWidth = 2;
-                    ctx.strokeStyle = '#fff';
-                    ctx.stroke();
                 }
             });
+            ctx.shadowBlur = 0;
         }
 
         function drawObjects(predictions) {
+            ctx.shadowColor = '#00E5FF';
+            ctx.shadowBlur = 15;
+            
             predictions.forEach(p => {
                 const [x, y, w, h] = p.bbox;
-                const conf = Math.round(p.score * 100);
                 
-                // Moderne Bounding Box: Runde Ecken, dünne Linie
-                ctx.strokeStyle = 'rgba(50, 215, 75, 0.8)';
-                ctx.lineWidth = 3;
-                roundRect(ctx, x, y, w, h, 10); // Custom function for rounded rects
+                // Fancy Corners Only instead of full box (Futuristic look)
+                const lineLen = Math.min(w, h) / 4;
+                ctx.lineWidth = 4;
+                ctx.strokeStyle = '#00E5FF'; // Cyber Blue
+
+                ctx.beginPath();
+                // Top Left
+                ctx.moveTo(x, y + lineLen); ctx.lineTo(x, y); ctx.lineTo(x + lineLen, y);
+                // Top Right
+                ctx.moveTo(x + w - lineLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + lineLen);
+                // Bottom Right
+                ctx.moveTo(x + w, y + h - lineLen); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - lineLen, y + h);
+                // Bottom Left
+                ctx.moveTo(x + lineLen, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - lineLen);
                 ctx.stroke();
 
-                // Label Pill
-                ctx.fillStyle = 'rgba(50, 215, 75, 1)';
-                const text = `${p.class} ${conf}%`;
-                const textWidth = ctx.measureText(text).width;
-                
-                ctx.beginPath();
-                ctx.roundRect(x, y - 26, textWidth + 16, 22, 6);
-                ctx.fill();
-
-                ctx.fillStyle = '#000';
-                ctx.font = '600 12px -apple-system, sans-serif';
-                ctx.fillText(text, x + 8, y - 10);
+                // Text
+                ctx.font = 'bold 16px Courier New';
+                ctx.fillStyle = '#00E5FF';
+                ctx.fillText(`${p.class.toUpperCase()} ${Math.round(p.score*100)}%`, x + 5, y - 10);
             });
+            ctx.shadowBlur = 0;
         }
 
-        function roundRect(ctx, x, y, w, h, r) {
-            if (w < 2 * r) r = w / 2;
-            if (h < 2 * r) r = h / 2;
-            ctx.beginPath();
-            ctx.moveTo(x + r, y);
-            ctx.arcTo(x + w, y, x + w, y + h, r);
-            ctx.arcTo(x + w, y + h, x, y + h, r);
-            ctx.arcTo(x, y + h, x, y, r);
-            ctx.arcTo(x, y, x + w, y, r);
-            ctx.closePath();
-        }
+        // --- Interaction Handlers ---
 
-        // --- Interactions ---
+        // Switch Mode
+        modeItems.forEach(item => {
+            item.addEventListener('click', (e) => {
+                const mode = e.target.dataset.mode;
+                if(mode === currentModel) return;
 
-        // Model Switcher
-        segBtns.forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                segBtns.forEach(b => b.classList.remove('active'));
+                // UI Update
+                modeItems.forEach(i => i.classList.remove('active'));
                 e.target.classList.add('active');
-                loadModel(e.target.dataset.model);
+
+                // Logic
+                loadModel(mode);
+                if(navigator.vibrate) navigator.vibrate(20);
             });
         });
 
-        // Switch Camera
-        switchBtn.addEventListener('click', () => {
-            if(navigator.vibrate) navigator.vibrate(10);
-            facingMode = facingMode === 'environment' ? 'user' : 'environment';
-            setupCamera();
+        // Double Tap to switch cam
+        let lastTap = 0;
+        viewContainer.addEventListener('touchstart', (e) => {
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTap;
+            if (tapLength < 300 && tapLength > 0) {
+                switchCamera();
+                e.preventDefault();
+            }
+            lastTap = currentTime;
         });
 
-        // Snapshot
+        switchBtn.addEventListener('click', switchCamera);
+        
+        async function switchCamera() {
+            if(navigator.vibrate) navigator.vibrate(30);
+            
+            // Flip Animation
+            video.style.transform = "scale(0.1)";
+            setTimeout(() => video.style.transform = "scale(1.0)", 400);
+
+            facingMode = facingMode === 'environment' ? 'user' : 'environment';
+            await setupCamera();
+        }
+
+        flashBtn.addEventListener('click', toggleTorch);
+
         shutterBtn.addEventListener('click', () => {
             if(navigator.vibrate) navigator.vibrate(50);
             
-            // Flash Animation
-            flash.style.opacity = '0.8';
-            setTimeout(() => flash.style.opacity = '0', 100);
+            // Flash Effect
+            flashOverlay.style.opacity = 1;
+            setTimeout(() => flashOverlay.style.opacity = 0, 150);
 
-            // Screenshot Logic
+            // Save Image
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = canvas.width;
             tempCanvas.height = canvas.height;
-            const tempCtx = tempCanvas.getContext('2d');
-            
-            // 1. Video Frame zeichnen
-            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
-            // 2. Overlay zeichnen
-            tempCtx.drawImage(canvas, 0, 0);
+            const tCtx = tempCanvas.getContext('2d');
+            tCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            tCtx.drawImage(canvas, 0, 0); // Overlay drauf
 
-            // 3. Download
             const link = document.createElement('a');
-            link.download = `ai-shot-${Date.now()}.png`;
+            link.download = `VISION-AI-${Date.now()}.png`;
             link.href = tempCanvas.toDataURL('image/png');
             link.click();
         });
 
+        // Start
         init();
 
     </script>
