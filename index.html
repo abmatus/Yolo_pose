@@ -6,13 +6,11 @@
     <title>AI Vision Pro</title>
     <link rel="manifest" href="manifest.json">
     
-    <!-- TensorFlow.js Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
     
-    <!-- Standard Models -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
@@ -110,6 +108,14 @@
         }
         .action-btn.secondary { background: rgba(255,255,255,0.15); color: white; }
 
+        /* Toggle Switch Style */
+        .switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(255,255,255,0.2); transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: var(--accent); }
+        input:checked + .slider:before { transform: translateX(24px); background-color: black; }
+
         /* Hidden File Input */
         #model-upload { display: none; }
 
@@ -199,7 +205,6 @@
     
     <div id="flash-overlay"></div>
 
-    <!-- Info Overlay -->
     <div id="info-overlay">
         <div class="info-header">
             <h2 style="margin:0; font-size:20px; letter-spacing:1px;">EINSTELLUNGEN & INFO</h2>
@@ -207,7 +212,6 @@
         </div>
         <div class="info-content">
             
-            <!-- PWA Install Section -->
             <div class="info-section" id="install-section" style="display:none;">
                 <div class="info-title">App Installieren</div>
                 <div class="info-text">Für bessere Performance und Vollbild-Modus:</div>
@@ -217,7 +221,17 @@
                 </button>
             </div>
 
-            <!-- Custom Model Guide -->
+            <div class="info-section">
+                <div class="info-title">Einstellungen</div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+                    <span class="info-text" style="margin:0;">Gelenkwinkel anzeigen</span>
+                    <label class="switch">
+                        <input type="checkbox" id="toggle-angles">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+            </div>
+
             <div class="info-section">
                 <div class="info-title">Eigenes Modell verwenden</div>
                 <div class="info-text">
@@ -246,7 +260,6 @@ yolo export model=best.pt format=tfjs</div>
                 <div id="upload-status" style="margin-top:10px; font-size:12px; color:var(--accent);"></div>
             </div>
 
-            <!-- Controls Guide -->
             <div class="info-section">
                 <div class="info-title">Steuerung</div>
                 <ul class="info-list">
@@ -256,7 +269,6 @@ yolo export model=best.pt format=tfjs</div>
                 </ul>
             </div>
 
-            <!-- Standard Models Info -->
             <div class="info-section">
                 <div class="info-title">Über die Standard-Modelle</div>
                 <div class="info-text">
@@ -269,7 +281,6 @@ yolo export model=best.pt format=tfjs</div>
         </div>
     </div>
 
-    <!-- HUD -->
     <div id="hud">
         <div class="top-controls">
             <button class="icon-btn" id="btn-flash">
@@ -346,6 +357,9 @@ yolo export model=best.pt format=tfjs</div>
         let currentStream = null;
         let lastFrameTime = 0;
         let torchOn = false;
+        
+        // Settings State
+        let showAngles = false;
 
         async function init() {
             await tf.setBackend('webgl');
@@ -546,22 +560,63 @@ yolo export model=best.pt format=tfjs</div>
             requestAnimationFrame(render);
         }
 
+        // --- Helper: Angle Calculation ---
+        function calculateAngle(a, b, c) {
+            const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+            let angle = Math.abs(radians * 180.0 / Math.PI);
+            if (angle > 180.0) angle = 360.0 - angle;
+            return Math.round(angle);
+        }
+
         // --- Drawing Helpers ---
         function drawPose(keypoints) {
             const minConf = 0.3;
             const connections = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
+            
             ctx.shadowColor = '#FFD60A'; ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
             ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            
+            // 1. Draw Lines
             connections.forEach(([i, j]) => {
                 const kp1 = keypoints[i]; const kp2 = keypoints[j];
                 if (kp1.score > minConf && kp2.score > minConf) {
                     ctx.beginPath(); ctx.moveTo(kp1.x, kp1.y); ctx.lineTo(kp2.x, kp2.y); ctx.stroke();
                 }
             });
+
+            // 2. Draw Points
             ctx.fillStyle = '#FFD60A';
             keypoints.forEach(kp => {
                 if (kp.score > minConf) { ctx.beginPath(); ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI); ctx.fill(); }
             });
+
+            // 3. Draw Angles (If Enabled)
+            if (showAngles) {
+                ctx.font = 'bold 18px monospace';
+                ctx.fillStyle = '#00E5FF'; 
+                ctx.shadowColor = 'black';
+                ctx.shadowBlur = 4;
+
+                // MoveNet IDs: 5=L_Shoulder, 7=L_Elbow, 9=L_Wrist, 11=L_Hip, 13=L_Knee, 15=L_Ankle
+                const joints = [
+                    { name: 'r_arm', pts: [6, 8, 10] },  
+                    { name: 'l_arm', pts: [5, 7, 9] },   
+                    { name: 'r_leg', pts: [12, 14, 16] }, 
+                    { name: 'l_leg', pts: [11, 13, 15] }  
+                ];
+
+                joints.forEach(joint => {
+                    const A = keypoints[joint.pts[0]];
+                    const B = keypoints[joint.pts[1]];
+                    const C = keypoints[joint.pts[2]];
+
+                    if (A && B && C && A.score > minConf && B.score > minConf && C.score > minConf) {
+                        const angle = calculateAngle(A, B, C);
+                        ctx.fillText(`${angle}°`, B.x + 15, B.y);
+                    }
+                });
+            }
+
             ctx.shadowBlur = 0;
         }
 
@@ -619,6 +674,11 @@ yolo export model=best.pt format=tfjs</div>
             infoOverlay.classList.remove('open');
             setTimeout(() => infoOverlay.style.display = 'none', 300);
         });
+        
+        // Toggle Angle Setting
+        document.getElementById('toggle-angles').addEventListener('change', (e) => {
+            showAngles = e.target.checked;
+        });
 
         // Mode Switch
         const modeItems = document.querySelectorAll('.mode-item');
@@ -648,10 +708,9 @@ yolo export model=best.pt format=tfjs</div>
         document.getElementById('btn-shutter').addEventListener('click', () => {
             document.getElementById('flash-overlay').style.opacity = 1;
             setTimeout(() => document.getElementById('flash-overlay').style.opacity = 0, 150);
-            // Snapshot Logic simplified
             const a = document.createElement('a');
             a.download = 'AI-SHOT.png';
-            a.href = canvas.toDataURL(); // Just canvas for speed in demo
+            a.href = canvas.toDataURL(); 
             a.click();
         });
 
