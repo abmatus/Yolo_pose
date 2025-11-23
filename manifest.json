@@ -1,18 +1,19 @@
 {
-  "name": "Pixel Pose Cam",
-  "short_name": "PoseCam",
+  "name": "AI Vision Cam",
+  "short_name": "AI Cam",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#000000",
-  "theme_color": "#000000",
+  "theme_color": "#00ff88",
+  "orientation": "portrait",
   "icons": [
     {
-      "src": "https://via.placeholder.com/192/000000/FFFFFF/?text=P",
+      "src": "https://via.placeholder.com/192/000000/00ff88/?text=AI",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "https://via.placeholder.com/512/000000/FFFFFF/?text=Pose",
+      "src": "https://via.placeholder.com/512/000000/00ff88/?text=AI+Cam",
       "sizes": "512x512",
       "type": "image/png"
     }
