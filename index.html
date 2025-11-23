@@ -62,6 +62,55 @@
             transition: opacity 0.1s ease-out;
         }
 
+        /* --- Info Overlay (New) --- */
+        #info-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 10, 0.95); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+            z-index: 150; display: none; flex-direction: column;
+            padding: 20px; overflow-y: auto; color: white;
+            opacity: 0; transition: opacity 0.3s ease;
+        }
+        
+        #info-overlay.open { opacity: 1; }
+
+        .info-content {
+            margin-top: calc(var(--safe-top) + 60px);
+            padding-bottom: calc(var(--safe-bottom) + 20px);
+            max-width: 600px; margin-left: auto; margin-right: auto; width: 100%;
+        }
+
+        .info-header {
+            display: flex; justify-content: space-between; align-items: center;
+            position: absolute; top: calc(var(--safe-top) + 15px); right: 20px; left: 20px;
+        }
+
+        .info-close-btn {
+            background: rgba(255,255,255,0.1); border: none; width: 40px; height: 40px;
+            border-radius: 50%; color: white; font-size: 24px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            margin-left: auto;
+        }
+
+        .info-section { margin-bottom: 35px; }
+        .info-title { 
+            color: var(--accent); font-size: 14px; font-weight: 800; 
+            margin-bottom: 12px; text-transform: uppercase; letter-spacing: 2px; 
+            border-left: 3px solid var(--accent); padding-left: 10px;
+        }
+        .info-text { font-size: 15px; line-height: 1.6; color: #e0e0e0; margin-bottom: 10px; }
+        .info-list { list-style: none; padding: 0; margin: 0; }
+        .info-list li { 
+            margin-bottom: 8px; padding-left: 20px; position: relative; color: #ccc; font-size: 14px;
+        }
+        .info-list li::before {
+            content: "•"; color: var(--accent); position: absolute; left: 0; font-weight: bold;
+        }
+        .tech-tag {
+            display: inline-block; background: rgba(255,255,255,0.1); 
+            padding: 2px 6px; border-radius: 4px; font-size: 11px; font-family: monospace;
+            margin-right: 5px; border: 1px solid rgba(255,255,255,0.2);
+        }
+
         /* --- HUD Layer --- */
         #hud {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
@@ -169,18 +218,54 @@
     <!-- Flash Animation -->
     <div id="flash-overlay"></div>
 
-    <!-- UI Overlay -->
+    <!-- Info Overlay -->
+    <div id="info-overlay">
+        <div class="info-header">
+            <h2 style="margin:0; font-size:20px; letter-spacing:1px;">INFORMATION</h2>
+            <button class="info-close-btn" id="close-info">×</button>
+        </div>
+        <div class="info-content">
+            <div class="info-section">
+                <div class="info-title">KI-Modelle</div>
+                <div class="info-text">
+                    <span class="tech-tag">BODY POSE</span> <strong>MoveNet (Lightning)</strong><br>
+                    Ein ultraschnelles Modell zur Bewegungserkennung. Es identifiziert 17 Schlüsselpunkte am menschlichen Körper (Gelenke, Augen, Nase) in Echtzeit. Perfekt für Sportanalyse oder Tanz.
+                </div>
+                <div class="info-text" style="margin-top:15px;">
+                    <span class="tech-tag">OBJECTS</span> <strong>Coco-SSD</strong><br>
+                    Ein Objekterkennungsmodell, das auf dem COCO-Datensatz trainiert wurde. Es kann 80 verschiedene Objektklassen (z.B. Person, Handy, Stuhl, Tasse, Katze) lokalisieren und klassifizieren.
+                </div>
+            </div>
+
+            <div class="info-section">
+                <div class="info-title">Bedienung</div>
+                <ul class="info-list">
+                    <li><strong>Modus wechseln:</strong> Tippe unten auf "BODY POSE" oder "OBJECTS".</li>
+                    <li><strong>Kamera wechseln:</strong> Tippe doppelt auf den Bildschirm oder nutze den Button unten rechts.</li>
+                    <li><strong>Foto speichern:</strong> Tippe auf den großen weißen Auslöser. Das Bild wird mit AI-Overlay gespeichert.</li>
+                    <li><strong>Blitz:</strong> Tippe auf das Blitz-Symbol oben links (falls vom Gerät unterstützt).</li>
+                </ul>
+            </div>
+            
+            <div class="info-section">
+                <div class="info-title">Datenschutz & Tech</div>
+                <div class="info-text">
+                    Alle Berechnungen finden <strong>lokal auf deinem Gerät</strong> (On-Device) statt. Es werden keine Bilder an einen Server gesendet. Die App nutzt TensorFlow.js mit WebGL-Beschleunigung.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- HUD Overlay -->
     <div id="hud">
         
         <!-- Top Bar -->
         <div class="top-controls">
             <button class="icon-btn" id="btn-flash">
-                <!-- Flash Icon (Off) -->
                 <svg id="icon-flash-off" viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
             </button>
             <div id="fps-badge">AI READY</div>
             <button class="icon-btn" id="btn-info">
-                <!-- Info Icon -->
                 <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
             </button>
         </div>
@@ -211,7 +296,7 @@
     </div>
 
     <script>
-        // PWA Helper mit erweiterter Überprüfung für Service Worker in Dev-Umgebungen
+        // PWA Helper
         if ('serviceWorker' in navigator && (window.location.protocol.indexOf('http') === 0)) {
             navigator.serviceWorker.register('./sw.js')
                 .then(reg => console.log('Service Worker registriert'))
@@ -226,6 +311,11 @@
         const flashOverlay = document.getElementById('flash-overlay');
         const fpsBadge = document.getElementById('fps-badge');
         
+        // Info Elements
+        const infoOverlay = document.getElementById('info-overlay');
+        const infoBtn = document.getElementById('btn-info');
+        const closeInfoBtn = document.getElementById('close-info');
+
         // Buttons
         const modeItems = document.querySelectorAll('.mode-item');
         const shutterBtn = document.getElementById('btn-shutter');
@@ -243,13 +333,8 @@
 
         // --- Initialization ---
         async function init() {
-            // WICHTIG: WebGL Backend ist Standard, aber CPU muss verfügbar sein
             await tf.setBackend('webgl');
-            
-            // Erst Kamera starten
             await setupCamera();
-            
-            // Dann Modell laden (während Kamera schon läuft)
             loadModel('pose'); 
         }
 
@@ -282,7 +367,6 @@
                 });
             } catch (err) {
                 console.error("Camera fail", err);
-                // Nur warnen wenn nicht im Iframe, um unnötige Alerts in der Vorschau zu vermeiden
                 if (window.self === window.top) {
                    alert("Kamera-Zugriff verweigert oder nicht verfügbar.");
                 }
@@ -300,8 +384,6 @@
                     await track.applyConstraints({
                         advanced: [{ torch: torchOn }]
                     });
-                    
-                    // UI Update
                     flashBtn.style.color = torchOn ? '#FFD60A' : 'white';
                     flashBtn.style.background = torchOn ? 'rgba(255, 214, 10, 0.2)' : 'rgba(0,0,0,0.3)';
                 } catch(e) { console.error("Torch error:", e); }
@@ -321,7 +403,6 @@
                 detector = null;
             }
 
-            // Kurze Pause für UI Render
             await new Promise(r => setTimeout(r, 50));
 
             try {
@@ -331,11 +412,9 @@
                         modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
                     });
                 } else {
-                    // CocoSSD lädt intern, benötigt aber das nun eingebundene CPU-Backend
                     detector = await cocoSsd.load();
                 }
 
-                // Loader verstecken wenn erstes Modell fertig
                 if(loader.style.display !== 'none') {
                     loader.style.opacity = 0;
                     setTimeout(() => loader.style.display = 'none', 500);
@@ -354,7 +433,7 @@
             if (!detector) return;
 
             const now = performance.now();
-            if(now - lastFrameTime > 500) { // Update FPS every 500ms
+            if(now - lastFrameTime > 500) { 
                  const fps = Math.round(1000 / (now - lastFrameTime));
                  fpsBadge.innerText = currentModel === 'pose' ? 'ACTIVE: POSE' : 'ACTIVE: OBJECT';
                  fpsBadge.style.color = 'var(--accent)';
@@ -379,94 +458,86 @@
             requestAnimationFrame(render);
         }
 
-        // --- Drawing (Modern Neon Style) ---
+        // --- Drawing ---
         function drawPose(keypoints) {
             const minConf = 0.3;
             const connections = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
             
-            ctx.shadowColor = '#FFD60A';
-            ctx.shadowBlur = 10;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
+            ctx.shadowColor = '#FFD60A'; ctx.shadowBlur = 10;
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
 
             // Lines
-            ctx.lineWidth = 4;
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
             connections.forEach(([i, j]) => {
-                const kp1 = keypoints[i];
-                const kp2 = keypoints[j];
+                const kp1 = keypoints[i]; const kp2 = keypoints[j];
                 if (kp1.score > minConf && kp2.score > minConf) {
-                    ctx.beginPath();
-                    ctx.moveTo(kp1.x, kp1.y);
-                    ctx.lineTo(kp2.x, kp2.y);
-                    ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(kp1.x, kp1.y); ctx.lineTo(kp2.x, kp2.y); ctx.stroke();
                 }
             });
 
             // Joints
-            ctx.fillStyle = '#FFD60A'; // Neon Yellow
+            ctx.fillStyle = '#FFD60A';
             keypoints.forEach(kp => {
                 if (kp.score > minConf) {
-                    ctx.beginPath();
-                    ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
-                    ctx.fill();
+                    ctx.beginPath(); ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI); ctx.fill();
                 }
             });
             ctx.shadowBlur = 0;
         }
 
         function drawObjects(predictions) {
-            ctx.shadowColor = '#00E5FF';
-            ctx.shadowBlur = 15;
-            
+            ctx.shadowColor = '#00E5FF'; ctx.shadowBlur = 15;
             predictions.forEach(p => {
                 const [x, y, w, h] = p.bbox;
-                
-                // Fancy Corners Only instead of full box (Futuristic look)
                 const lineLen = Math.min(w, h) / 4;
-                ctx.lineWidth = 4;
-                ctx.strokeStyle = '#00E5FF'; // Cyber Blue
+                ctx.lineWidth = 4; ctx.strokeStyle = '#00E5FF';
 
                 ctx.beginPath();
-                // Top Left
                 ctx.moveTo(x, y + lineLen); ctx.lineTo(x, y); ctx.lineTo(x + lineLen, y);
-                // Top Right
                 ctx.moveTo(x + w - lineLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + lineLen);
-                // Bottom Right
                 ctx.moveTo(x + w, y + h - lineLen); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - lineLen, y + h);
-                // Bottom Left
                 ctx.moveTo(x + lineLen, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - lineLen);
                 ctx.stroke();
 
-                // Text
-                ctx.font = 'bold 16px Courier New';
-                ctx.fillStyle = '#00E5FF';
+                ctx.font = 'bold 16px Courier New'; ctx.fillStyle = '#00E5FF';
                 ctx.fillText(`${p.class.toUpperCase()} ${Math.round(p.score*100)}%`, x + 5, y - 10);
             });
             ctx.shadowBlur = 0;
         }
 
-        // --- Interaction Handlers ---
+        // --- Info Overlay Logic ---
+        function openInfo() {
+            infoOverlay.style.display = 'flex';
+            // Kleiner Timeout für die Opacity Transition
+            setTimeout(() => infoOverlay.classList.add('open'), 10);
+        }
 
-        // Switch Mode
+        function closeInfo() {
+            infoOverlay.classList.remove('open');
+            setTimeout(() => infoOverlay.style.display = 'none', 300);
+        }
+
+        infoBtn.addEventListener('click', openInfo);
+        closeInfoBtn.addEventListener('click', closeInfo);
+
+
+        // --- Interaction Handlers ---
         modeItems.forEach(item => {
             item.addEventListener('click', (e) => {
                 const mode = e.target.dataset.mode;
                 if(mode === currentModel) return;
-
-                // UI Update
                 modeItems.forEach(i => i.classList.remove('active'));
                 e.target.classList.add('active');
-
-                // Logic
                 loadModel(mode);
                 if(navigator.vibrate) navigator.vibrate(20);
             });
         });
 
-        // Double Tap to switch cam
         let lastTap = 0;
         viewContainer.addEventListener('touchstart', (e) => {
+            // Verhindern, dass der Info Screen aus Versehen Klicks abbekommt
+            if(infoOverlay.style.display === 'flex') return;
+
             const currentTime = new Date().getTime();
             const tapLength = currentTime - lastTap;
             if (tapLength < 300 && tapLength > 0) {
@@ -480,11 +551,8 @@
         
         async function switchCamera() {
             if(navigator.vibrate) navigator.vibrate(30);
-            
-            // Flip Animation
             video.style.transform = "scale(0.1)";
             setTimeout(() => video.style.transform = "scale(1.0)", 400);
-
             facingMode = facingMode === 'environment' ? 'user' : 'environment';
             await setupCamera();
         }
@@ -493,28 +561,21 @@
 
         shutterBtn.addEventListener('click', () => {
             if(navigator.vibrate) navigator.vibrate(50);
-            
-            // Flash Effect
             flashOverlay.style.opacity = 1;
             setTimeout(() => flashOverlay.style.opacity = 0, 150);
-
-            // Save Image
             const tempCanvas = document.createElement('canvas');
             tempCanvas.width = canvas.width;
             tempCanvas.height = canvas.height;
             const tCtx = tempCanvas.getContext('2d');
             tCtx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            tCtx.drawImage(canvas, 0, 0); // Overlay drauf
-
+            tCtx.drawImage(canvas, 0, 0); 
             const link = document.createElement('a');
             link.download = `VISION-AI-${Date.now()}.png`;
             link.href = tempCanvas.toDataURL('image/png');
             link.click();
         });
 
-        // Start
         init();
-
     </script>
 </body>
 </html>
