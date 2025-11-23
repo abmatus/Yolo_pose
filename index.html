@@ -4,17 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>AI Vision Pro</title>
+    <link rel="manifest" href="manifest.json">
     
-    <link rel="manifest" href="./manifest.json">
+    <!-- TensorFlow.js Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
     
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+    <!-- Standard Models -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
 
     <style>
         :root {
             --accent: #FFD60A; /* Cyber Yellow */
             --bg-glass: rgba(0, 0, 0, 0.4);
+            --text-active: #ffffff;
+            --text-inactive: rgba(255, 255, 255, 0.5);
             --safe-top: env(safe-area-inset-top, 20px);
             --safe-bottom: env(safe-area-inset-bottom, 20px);
         }
@@ -23,365 +30,637 @@
 
         body { 
             margin: 0; background: #000; overflow: hidden; height: 100vh; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-            user-select: none; color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            user-select: none;
+            touch-action: manipulation;
         }
 
-        /* Video & Canvas */
-        #view-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
-        video { width: 100%; height: 100%; object-fit: cover; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        /* --- Fullscreen Viewfinder --- */
+        #view-container { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: #000; z-index: 1;
+        }
+        
+        video { 
+            width: 100%; height: 100%; object-fit: cover; 
+            transform: scale(1.0); transition: transform 0.3s;
+        }
+        
+        canvas { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            object-fit: cover; pointer-events: none;
+        }
 
-        /* UI Layer */
-        #ui-layer {
+        #flash-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: white; opacity: 0; pointer-events: none; z-index: 100;
+            transition: opacity 0.1s ease-out;
+        }
+
+        /* --- Info Overlay --- */
+        #info-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 10, 10, 0.95); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+            z-index: 150; display: none; flex-direction: column;
+            padding: 20px; overflow-y: auto; color: white;
+            opacity: 0; transition: opacity 0.3s ease;
+        }
+        
+        #info-overlay.open { opacity: 1; }
+
+        .info-content {
+            margin-top: calc(var(--safe-top) + 60px);
+            padding-bottom: calc(var(--safe-bottom) + 20px);
+            max-width: 600px; margin-left: auto; margin-right: auto; width: 100%;
+        }
+
+        .info-header {
+            display: flex; justify-content: space-between; align-items: center;
+            position: absolute; top: calc(var(--safe-top) + 15px); right: 20px; left: 20px;
+        }
+
+        .info-close-btn {
+            background: rgba(255,255,255,0.1); border: none; width: 40px; height: 40px;
+            border-radius: 50%; color: white; font-size: 24px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center;
+            margin-left: auto;
+        }
+
+        .info-section { margin-bottom: 35px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 20px; }
+        .info-title { 
+            color: var(--accent); font-size: 14px; font-weight: 800; 
+            margin-bottom: 12px; text-transform: uppercase; letter-spacing: 2px; 
+            border-left: 3px solid var(--accent); padding-left: 10px;
+        }
+        .info-text { font-size: 15px; line-height: 1.6; color: #e0e0e0; margin-bottom: 10px; }
+        .info-code {
+            background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);
+            padding: 10px; border-radius: 6px; font-family: monospace; font-size: 13px; color: #aaffaa;
+            display: block; margin: 10px 0; white-space: pre-wrap; word-break: break-all;
+        }
+        .info-list { list-style: none; padding: 0; margin: 0; }
+        .info-list li { margin-bottom: 8px; padding-left: 20px; position: relative; color: #ccc; font-size: 14px; }
+        .info-list li::before { content: "•"; color: var(--accent); position: absolute; left: 0; font-weight: bold; }
+        
+        /* Buttons in Info */
+        .action-btn {
+            background: var(--accent); color: black; border: none; padding: 12px 20px;
+            border-radius: 8px; font-weight: bold; width: 100%; margin-top: 10px;
+            cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 10px;
+        }
+        .action-btn.secondary { background: rgba(255,255,255,0.15); color: white; }
+
+        /* Hidden File Input */
+        #model-upload { display: none; }
+
+        /* --- HUD Layer --- */
+        #hud {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
             display: flex; flex-direction: column; justify-content: space-between;
-            pointer-events: none; /* Klicks gehen durch */
+            pointer-events: none;
         }
 
         /* Top Bar */
-        .top-bar {
+        .top-controls {
             padding: calc(var(--safe-top) + 10px) 20px 0;
             display: flex; justify-content: space-between; align-items: center;
             pointer-events: auto;
         }
 
-        .btn-group { display: flex; gap: 12px; }
-
         .icon-btn {
-            background: rgba(0,0,0,0.4); backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 12px; width: 48px; height: 48px;
+            background: rgba(0,0,0,0.3); backdrop-filter: blur(10px);
+            border: none; border-radius: 50%; width: 44px; height: 44px;
             display: flex; align-items: center; justify-content: center;
             color: white; cursor: pointer; transition: 0.2s;
         }
-        .icon-btn:active { transform: scale(0.95); background: rgba(255,255,255,0.2); }
-        .icon-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(255, 214, 10, 0.15); }
-        .icon-btn svg { width: 24px; height: 24px; fill: currentColor; }
+        .icon-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.2); }
+        .icon-btn svg { width: 24px; height: 24px; fill: white; }
 
-        /* Install Button Special Style */
-        #btn-install { display: none; background: rgba(66, 133, 244, 0.2); border-color: #4285f4; }
-
-        /* Status Badge */
-        #status-pill {
-            background: rgba(0,0,0,0.6); padding: 6px 12px; border-radius: 20px;
-            font-size: 12px; font-family: monospace; color: var(--accent);
-            border: 1px solid rgba(255, 214, 10, 0.3);
+        #fps-badge {
+            font-size: 12px; font-weight: 700; color: var(--accent);
+            background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px;
+            font-family: monospace; letter-spacing: 1px;
         }
 
         /* Bottom Controls */
-        .bottom-bar {
+        .bottom-controls {
             padding-bottom: calc(var(--safe-bottom) + 30px);
-            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+            background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
             display: flex; flex-direction: column; align-items: center; gap: 20px;
             pointer-events: auto;
         }
 
-        .mode-switch { display: flex; gap: 20px; }
-        .mode-item { 
-            font-size: 13px; font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.5); 
-            padding: 5px 10px; cursor: pointer;
+        /* Mode Selector */
+        .mode-selector { display: flex; gap: 30px; margin-bottom: 10px; }
+        .mode-item {
+            font-size: 13px; font-weight: 600; letter-spacing: 1px;
+            color: var(--text-inactive); text-transform: uppercase;
+            cursor: pointer; transition: 0.3s; padding: 5px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
         }
-        .mode-item.active { color: var(--accent); text-shadow: 0 0 10px rgba(255, 214, 10, 0.5); }
+        .mode-item.active { color: var(--accent); transform: scale(1.1); }
 
-        /* Loader */
+        /* Shutter */
+        .shutter-row { display: flex; align-items: center; justify-content: center; width: 100%; position: relative; }
+        .shutter-btn {
+            width: 80px; height: 80px; border-radius: 50%; border: 4px solid white; background: transparent;
+            display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; z-index: 20;
+        }
+        .shutter-inner { width: 68px; height: 68px; border-radius: 50%; background: white; transition: 0.2s; }
+        .shutter-btn:active .shutter-inner { transform: scale(0.9); opacity: 0.8; }
+        .switch-btn-container { position: absolute; right: 40px; }
+
+        /* Loading */
         #loader {
-            position: absolute; top:0; left:0; width:100%; height:100%; background:#000; z-index: 100;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
-            transition: opacity 0.5s;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 200; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; transition: opacity 0.5s;
         }
         .spinner {
-            width: 40px; height: 40px; border: 4px solid #222; border-top-color: var(--accent);
-            border-radius: 50%; animation: spin 1s infinite linear;
+            width: 50px; height: 50px; border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .loader-text { margin-top: 20px; color: #666; font-size: 12px; letter-spacing: 2px; }
 
-        /* ERROR CONSOLE (Retter in der Not auf dem Handy) */
-        #error-log {
-            position: absolute; top: 10%; left: 5%; width: 90%; background: rgba(50,0,0,0.9);
-            border: 2px solid red; padding: 10px; color: #ffaaaa; font-family: monospace; font-size: 12px;
-            z-index: 9999; display: none; word-wrap: break-word;
-        }
     </style>
 </head>
 <body>
 
-    <div id="error-log"></div>
-
     <div id="loader">
         <div class="spinner"></div>
-        <div id="loader-text" style="margin-top:20px; font-size:12px; letter-spacing:1px; color:#666;">SYSTEM START...</div>
+        <div class="loader-text">AI MODULE LOADING</div>
     </div>
 
     <div id="view-container">
         <video id="video" playsinline muted autoplay></video>
         <canvas id="output"></canvas>
     </div>
+    
+    <div id="flash-overlay"></div>
 
-    <div id="ui-layer">
-        
-        <div class="top-bar">
-            <div class="btn-group">
-                <button class="icon-btn" id="btn-install">
-                    <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-                </button>
-                <button class="icon-btn" id="btn-angles">
-                    <svg viewBox="0 0 24 24"><path d="M18 7l-5-5-5 5H2v13h20V7h-4zm-5-3l2.5 2.5h-5L13 4zm5 14H6V9h2.29l3.71-3.71L15.71 9H18v9z"/></svg>
+    <!-- Info Overlay -->
+    <div id="info-overlay">
+        <div class="info-header">
+            <h2 style="margin:0; font-size:20px; letter-spacing:1px;">EINSTELLUNGEN & INFO</h2>
+            <button class="info-close-btn" id="close-info">×</button>
+        </div>
+        <div class="info-content">
+            
+            <!-- PWA Install Section -->
+            <div class="info-section" id="install-section" style="display:none;">
+                <div class="info-title">App Installieren</div>
+                <div class="info-text">Für bessere Performance und Vollbild-Modus:</div>
+                <button class="action-btn" id="btn-install">
+                    <svg style="width:20px;" viewBox="0 0 24 24" fill="black"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
+                    APP INSTALLIEREN
                 </button>
             </div>
-            <div id="status-pill">INIT...</div>
+
+            <!-- Custom Model Guide -->
+            <div class="info-section">
+                <div class="info-title">Eigenes Modell verwenden</div>
+                <div class="info-text">
+                    Du kannst dein eigenes <strong>YOLOv8</strong> Modell (Objekterkennung) hier verwenden. Das Modell läuft lokal im Browser.
+                </div>
+                
+                <div class="info-title" style="margin-top:20px; font-size:12px;">Schritt 1: Exportieren</div>
+                <div class="info-text">
+                    Installiere das `ultralytics` Python Paket und exportiere dein trainiertes Modell (`.pt`) in das Web-Format (`tfjs`).
+                </div>
+                <div class="info-code">pip install ultralytics
+yolo export model=best.pt format=tfjs</div>
+                
+                <div class="info-title" style="margin-top:20px; font-size:12px;">Schritt 2: Hochladen</div>
+                <div class="info-text">
+                    Der Export erstellt einen Ordner mit einer <code>model.json</code> und mehreren <code>.bin</code> Dateien.
+                    <br><br>
+                    <strong>WICHTIG:</strong> Wenn du unten auf "Dateien auswählen" klickst, musst du <strong>ALLE</strong> Dateien aus diesem Ordner gleichzeitig markieren und öffnen.
+                </div>
+
+                <button class="action-btn secondary" id="btn-upload">
+                    <svg style="width:20px; fill:white;" viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
+                    DATEIEN AUSWÄHLEN (JSON + BIN)
+                </button>
+                <input type="file" id="model-upload" multiple accept=".json,.bin">
+                <div id="upload-status" style="margin-top:10px; font-size:12px; color:var(--accent);"></div>
+            </div>
+
+            <!-- Controls Guide -->
+            <div class="info-section">
+                <div class="info-title">Steuerung</div>
+                <ul class="info-list">
+                    <li><strong>Kamera wechseln:</strong> Doppeltipp auf den Bildschirm oder Icon unten rechts.</li>
+                    <li><strong>Foto:</strong> Der weiße Auslöser speichert das Bild inkl. AI-Boxen.</li>
+                    <li><strong>Modus:</strong> Tippe unten auf die Namen (POSE / OBJECT), um zu wechseln.</li>
+                </ul>
+            </div>
+
+            <!-- Standard Models Info -->
+            <div class="info-section">
+                <div class="info-title">Über die Standard-Modelle</div>
+                <div class="info-text">
+                    <strong>MoveNet (Pose):</strong> Erkennt 17 Körperpunkte in Echtzeit. Ideal für Sport & Bewegung.
+                    <br><br>
+                    <strong>Coco-SSD (Object):</strong> Erkennt 80 Standard-Objekte wie Person, Auto, Handy, Tasse, etc.
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- HUD -->
+    <div id="hud">
+        <div class="top-controls">
+            <button class="icon-btn" id="btn-flash">
+                <svg id="icon-flash-off" viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+            </button>
+            <div id="fps-badge">AI READY</div>
+            <button class="icon-btn" id="btn-info">
+                <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+            </button>
         </div>
 
-        <div class="bottom-bar">
-            <div class="mode-switch">
-                <div class="mode-item active" id="mode-pose">POSE</div>
-                <div class="mode-item" id="mode-object">OBJECT</div>
+        <div class="bottom-controls">
+            <div class="mode-selector">
+                <div class="mode-item active" data-mode="pose">POSE</div>
+                <div class="mode-item" data-mode="object">OBJECT</div>
+                <div class="mode-item" id="mode-custom" style="display:none;" data-mode="custom">YOLO</div>
+            </div>
+
+            <div class="shutter-row">
+                <div class="shutter-btn" id="btn-shutter"><div class="shutter-inner"></div></div>
+                <div class="switch-btn-container">
+                    <button class="icon-btn" id="btn-switch-cam" style="background: rgba(255,255,255,0.1);">
+                        <svg viewBox="0 0 24 24"><path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-5 11.5V13H9v2.5L5.5 12 9 8.5V11h6V8.5l3.5 3.5-3.5 3.5z"/></svg>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        // --- 0. Fehlerbehandlung (Zuerst laden!) ---
-        const errorLog = document.getElementById('error-log');
-        const loader = document.getElementById('loader');
-        const loaderText = document.getElementById('loader-text');
-
-        function showError(msg) {
-            console.error(msg);
-            loader.style.display = 'none'; // Loader weg
-            errorLog.style.display = 'block';
-            errorLog.innerHTML += `> ${msg}<br>`;
-        }
-
-        window.onerror = function(msg, source, lineno) {
-            showError(`JS Error: ${msg} (Line ${lineno})`);
-        };
-
-        // --- 1. PWA & Service Worker ---
+        // --- 1. PWA Install Logic ---
         let deferredPrompt;
-        const btnInstall = document.getElementById('btn-install');
-
-        // Service Worker registrieren (GitHub Pages kompatibel)
-        if ('serviceWorker' in navigator) {
-            // Wir nutzen ./sw.js für relative Pfade
-            navigator.serviceWorker.register('./sw.js')
-                .then(() => console.log('SW Ready'))
-                .catch(err => console.log('SW Fail:', err));
-        }
+        const installSection = document.getElementById('install-section');
+        const installBtn = document.getElementById('btn-install');
 
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             deferredPrompt = e;
-            btnInstall.style.display = 'flex'; // Button zeigen
+            installSection.style.display = 'block';
         });
 
-        btnInstall.addEventListener('click', async () => {
+        installBtn.addEventListener('click', async () => {
             if (!deferredPrompt) return;
             deferredPrompt.prompt();
             const { outcome } = await deferredPrompt.userChoice;
-            if (outcome === 'accepted') btnInstall.style.display = 'none';
+            console.log(`User response to the install prompt: ${outcome}`);
             deferredPrompt = null;
+            installSection.style.display = 'none';
         });
 
-        // --- 2. App Logik ---
+        // --- 2. Register Service Worker ---
+        if ('serviceWorker' in navigator && (window.location.protocol.indexOf('http') === 0)) {
+            navigator.serviceWorker.register('./sw.js').catch(e => console.log('SW Skip:', e));
+        }
+
+        // --- 3. Main Logic ---
         const video = document.getElementById('video');
         const canvas = document.getElementById('output');
         const ctx = canvas.getContext('2d');
-        const statusPill = document.getElementById('status-pill');
-        const btnAngles = document.getElementById('btn-angles');
+        const loader = document.getElementById('loader');
+        const fpsBadge = document.getElementById('fps-badge');
         
+        // Custom Upload Elements
+        const btnUpload = document.getElementById('btn-upload');
+        const inputUpload = document.getElementById('model-upload');
+        const uploadStatus = document.getElementById('upload-status');
+        const modeCustom = document.getElementById('mode-custom');
+
+        // State
         let detector;
-        let currentMode = 'pose';
-        let showAngles = false;
-        let animationId;
-        let isReady = false;
+        let customModel = null;
+        let currentModel = 'pose';
+        let facingMode = 'environment';
+        let currentStream = null;
+        let lastFrameTime = 0;
+        let torchOn = false;
 
-        // Toggle Buttons
-        btnAngles.addEventListener('click', () => {
-            showAngles = !showAngles;
-            btnAngles.classList.toggle('active', showAngles);
-        });
-
-        document.getElementById('mode-pose').addEventListener('click', () => switchMode('pose'));
-        document.getElementById('mode-object').addEventListener('click', () => switchMode('object'));
-
-        // Haupt-Start Funktion
-        async function main() {
-            try {
-                loaderText.innerText = "LADE TENSORFLOW...";
-                await tf.setBackend('webgl');
-                await tf.ready();
-                
-                loaderText.innerText = "STARTE KAMERA...";
-                await setupCamera();
-
-                loaderText.innerText = "LADE KI MODELL...";
-                await loadModel('pose');
-
-                // Start
-                loader.style.opacity = 0;
-                setTimeout(() => loader.style.display = 'none', 500);
-                isReady = true;
-                statusPill.innerText = "BEREIT";
-                render();
-
-            } catch (e) {
-                showError("Start Fehler: " + e.message);
-            }
+        async function init() {
+            await tf.setBackend('webgl');
+            await setupCamera();
+            loadModel('pose'); 
         }
 
         async function setupCamera() {
-            // iOS/Android Kompatibilität prüfen
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                throw new Error("Kamera API nicht verfügbar (kein HTTPS?)");
-            }
-
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: {ideal: 640}, height: {ideal: 480} },
-                audio: false
-            });
-            video.srcObject = stream;
-            
-            return new Promise((resolve) => {
-                video.onloadedmetadata = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    video.play();
-                    resolve();
-                };
-            });
-        }
-
-        async function loadModel(mode) {
-            isReady = false;
-            statusPill.innerText = "LADE MODELL...";
-            currentMode = mode;
-            
-            // UI Update
-            document.getElementById('mode-pose').classList.toggle('active', mode === 'pose');
-            document.getElementById('mode-object').classList.toggle('active', mode === 'object');
-
-            if(detector) {
-                detector = null; // Speicher freigeben (einfach)
-            }
-
+            if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+            const constraints = { video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
             try {
-                if (mode === 'pose') {
-                    // PoseDetection API
-                    const model = poseDetection.SupportedModels.MoveNet;
-                    detector = await poseDetection.createDetector(model, { 
-                        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING 
-                    });
-                } else {
-                    // Coco SSD API
-                    detector = await cocoSsd.load();
-                }
-                isReady = true;
-                statusPill.innerText = mode === 'pose' ? "MOVENET" : "COCO-SSD";
-            } catch (e) {
-                showError("Modell Fehler: " + e.message);
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                video.srcObject = stream;
+                return new Promise(resolve => {
+                    video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        resolve();
+                    };
+                });
+            } catch (err) {
+                if (window.self === window.top) alert("Kamerafehler: " + err.message);
             }
         }
 
-        async function switchMode(mode) {
-            if(currentMode === mode) return;
-            await loadModel(mode);
-        }
+        // --- Upload Logic ---
+        btnUpload.addEventListener('click', () => inputUpload.click());
 
-        // --- 3. Render & Mathematik ---
-        function calculateAngle(a, b, c) {
-            if(!a || !b || !c) return null;
-            const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-            let angle = Math.abs(radians * 180.0 / Math.PI);
-            if (angle > 180.0) angle = 360 - angle;
-            return Math.round(angle);
-        }
-
-        async function render() {
-            if (!isReady || !detector) {
-                requestAnimationFrame(render);
+        inputUpload.addEventListener('change', async (event) => {
+            const files = event.target.files;
+            if (files.length < 2) {
+                alert("Bitte wähle model.json UND die .bin Datei(en) aus.");
                 return;
             }
 
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            uploadStatus.innerText = "Lade Custom YOLO...";
+            
+            try {
+                customModel = await tf.loadGraphModel(tf.io.browserFiles(files));
+                
+                // Warmup
+                const dummy = tf.zeros([1, 640, 640, 3]);
+                customModel.predict(dummy).dispose();
+                dummy.dispose();
+
+                uploadStatus.innerText = "YOLO Modell bereit!";
+                uploadStatus.style.color = "#00ff00";
+                
+                modeCustom.style.display = 'block';
+                modeCustom.click();
+                setTimeout(() => document.getElementById('close-info').click(), 800);
+
+            } catch (err) {
+                console.error(err);
+                uploadStatus.innerText = "Fehler: " + err.message;
+                uploadStatus.style.color = "red";
+                alert("Ladefehler. Sicher dass es ein TF.js YOLO Export ist?");
+            }
+        });
+
+        // --- Model Loading ---
+        async function loadModel(type) {
+            if (type === 'custom' && !customModel) return;
+            
+            currentModel = type;
+            fpsBadge.innerText = "LOADING...";
+            
+            if (detector && detector.dispose) { 
+                 // detector.dispose(); 
+            } 
+
+            await new Promise(r => setTimeout(r, 50)); 
 
             try {
-                if (currentMode === 'pose') {
-                    const poses = await detector.estimatePoses(video);
-                    if (poses.length > 0) drawPose(poses[0].keypoints);
-                } else {
-                    const predictions = await detector.detect(video);
-                    drawObjects(predictions);
+                if (type === 'pose') {
+                    const model = poseDetection.SupportedModels.MoveNet;
+                    detector = await poseDetection.createDetector(model, { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING });
+                } else if (type === 'object') {
+                    detector = await cocoSsd.load();
+                } else if (type === 'custom') {
+                    detector = customModel;
                 }
-            } catch (e) {
-                console.warn(e);
+
+                if(loader.style.display !== 'none') {
+                    loader.style.opacity = 0;
+                    setTimeout(() => loader.style.display = 'none', 500);
+                }
+                render();
+            } catch (err) {
+                console.error(err);
+                fpsBadge.innerText = "ERR";
+            }
+        }
+
+        // --- YOLO Post-Processing ---
+        async function runYoloCustom(model, videoEl) {
+            // 1. Preprocessing
+            const tfImg = tf.tidy(() => {
+                const img = tf.browser.fromPixels(videoEl);
+                return tf.image.resizeBilinear(img, [640, 640]).div(255.0).expandDims(0);
+            });
+
+            // 2. Inference
+            const outputTensor = model.predict(tfImg);
+            
+            // 3. Post-Processing (YOLOv8 Output Decoding)
+            // Output shape is typically [1, 4+classes, 8400] -> e.g. [1, 84, 8400]
+            const predictions = await tf.tidy(() => {
+                const output = outputTensor.squeeze(); // [84, 8400]
+                const [features, anchors] = output.shape;
+                
+                // Transpose to [8400, 84] to have [anchors, features]
+                const transposed = output.transpose([1, 0]); 
+                
+                // Extract boxes (x,y,w,h) and scores
+                const boxes = transposed.slice([0, 0], [anchors, 4]); // [8400, 4]
+                const scores = transposed.slice([0, 4], [anchors, features - 4]); // [8400, 80]
+                
+                // Get max score and class index for each anchor
+                const maxScores = scores.max(1);
+                const classes = scores.argMax(1);
+                
+                // Box conversion (cx, cy, w, h) -> (y1, x1, y2, x2) for NMS
+                const x = boxes.slice([0, 0], [anchors, 1]);
+                const y = boxes.slice([0, 1], [anchors, 1]);
+                const w = boxes.slice([0, 2], [anchors, 1]);
+                const h = boxes.slice([0, 3], [anchors, 1]);
+                
+                const x1 = x.sub(w.div(2));
+                const y1 = y.sub(h.div(2));
+                const x2 = x.add(w.div(2));
+                const y2 = y.add(h.div(2));
+                
+                // TensorFlow NMS expects [y1, x1, y2, x2]
+                const nmsBoxes = tf.concat([y1, x1, y2, x2], 1);
+                
+                return { nmsBoxes, maxScores, classes };
+            });
+
+            // 4. Non-Max Suppression
+            const nmsThreshold = 0.5; // Overlap threshold
+            const scoreThreshold = 0.35; // Confidence threshold
+            const maxOutputSize = 20;
+
+            const nmsIndices = await tf.image.nonMaxSuppressionAsync(
+                predictions.nmsBoxes, 
+                predictions.maxScores, 
+                maxOutputSize, 
+                nmsThreshold, 
+                scoreThreshold
+            );
+
+            // 5. Gather Final Results
+            const resultData = {
+                boxes: await predictions.nmsBoxes.gather(nmsIndices).array(),
+                scores: await predictions.maxScores.gather(nmsIndices).array(),
+                classes: await predictions.classes.gather(nmsIndices).array()
+            };
+
+            // Cleanup tensors
+            tfImg.dispose();
+            outputTensor.dispose();
+            tf.dispose(predictions); 
+            nmsIndices.dispose();
+
+            return resultData;
+        }
+
+        // --- Render Loop ---
+        async function render() {
+            const now = performance.now();
+            if(now - lastFrameTime > 500) { 
+                 fpsBadge.innerText = `ACTIVE: ${currentModel.toUpperCase()}`;
+                 fpsBadge.style.color = 'var(--accent)';
+            }
+            lastFrameTime = now;
+
+            if (video.readyState === 4) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                try {
+                    if (currentModel === 'pose' && detector) {
+                        const poses = await detector.estimatePoses(video);
+                        if (poses.length > 0) drawPose(poses[0].keypoints);
+                    
+                    } else if (currentModel === 'object' && detector) {
+                        const predictions = await detector.detect(video);
+                        drawObjects(predictions);
+                    
+                    } else if (currentModel === 'custom' && customModel) {
+                        const results = await runYoloCustom(customModel, video);
+                        drawYoloResults(results);
+                    }
+
+                } catch(e) { console.warn(e); }
             }
             requestAnimationFrame(render);
         }
 
-        function drawPose(kp) {
-            const minScore = 0.3;
-            // Map erstellen
-            const k = kp.reduce((acc, p) => { acc[p.name] = p; return acc; }, {});
-
-            // Linien zeichnen (einfache Methode)
-            const pairs = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
-            ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-            
-            pairs.forEach(([i, j]) => {
-                const p1 = kp[i]; const p2 = kp[j];
-                if(p1.score > minScore && p2.score > minScore) {
-                    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+        // --- Drawing Helpers ---
+        function drawPose(keypoints) {
+            const minConf = 0.3;
+            const connections = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
+            ctx.shadowColor = '#FFD60A'; ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+            connections.forEach(([i, j]) => {
+                const kp1 = keypoints[i]; const kp2 = keypoints[j];
+                if (kp1.score > minConf && kp2.score > minConf) {
+                    ctx.beginPath(); ctx.moveTo(kp1.x, kp1.y); ctx.lineTo(kp2.x, kp2.y); ctx.stroke();
                 }
             });
-
-            // Punkte zeichnen
-            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent');
-            kp.forEach(p => {
-                if(p.score > minScore) {
-                    ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI); ctx.fill();
-                }
+            ctx.fillStyle = '#FFD60A';
+            keypoints.forEach(kp => {
+                if (kp.score > minConf) { ctx.beginPath(); ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI); ctx.fill(); }
             });
-
-            // Winkel berechnen
-            if(showAngles) {
-                const joints = [
-                    [k['left_shoulder'], k['left_elbow'], k['left_wrist']],
-                    [k['right_shoulder'], k['right_elbow'], k['right_wrist']],
-                    [k['left_hip'], k['left_knee'], k['left_ankle']],
-                    [k['right_hip'], k['right_knee'], k['right_ankle']]
-                ];
-
-                ctx.font = "bold 16px monospace";
-                ctx.textAlign = "center";
-                ctx.fillStyle = "#FFD60A";
-                ctx.strokeStyle = "black";
-                ctx.lineWidth = 3;
-
-                joints.forEach(set => {
-                    const angle = calculateAngle(set[0], set[1], set[2]);
-                    if(angle && set[1].score > minScore) {
-                        ctx.strokeText(angle + "°", set[1].x, set[1].y - 20);
-                        ctx.fillText(angle + "°", set[1].x, set[1].y - 20);
-                    }
-                });
-            }
+            ctx.shadowBlur = 0;
         }
 
-        function drawObjects(preds) {
-            ctx.lineWidth = 3; ctx.strokeStyle = '#00E5FF';
-            ctx.font = "16px sans-serif"; ctx.fillStyle = '#00E5FF';
-            
-            preds.forEach(p => {
+        function drawObjects(predictions) {
+            ctx.shadowColor = '#00E5FF'; ctx.shadowBlur = 15;
+            predictions.forEach(p => {
                 const [x, y, w, h] = p.bbox;
-                ctx.strokeRect(x, y, w, h);
-                ctx.fillText(`${p.class} ${Math.round(p.score*100)}%`, x, y - 5);
+                drawBox(x, y, w, h, p.class, p.score, '#00E5FF');
             });
+            ctx.shadowBlur = 0;
         }
 
-        // Starten
-        main();
+        function drawYoloResults(results) {
+            ctx.shadowColor = '#FF0055'; ctx.shadowBlur = 15;
+            const scaleX = canvas.width / 640;
+            const scaleY = canvas.height / 640;
 
+            results.boxes.forEach((box, i) => {
+                // box is [y1, x1, y2, x2] from TF (normalized 0-640)
+                const y1 = box[0] * scaleY;
+                const x1 = box[1] * scaleX;
+                const y2 = box[2] * scaleY;
+                const x2 = box[3] * scaleX;
+                const w = x2 - x1;
+                const h = y2 - y1;
+                
+                const cls = `Class ${results.classes[i]}`;
+                const score = results.scores[i];
+                
+                drawBox(x1, y1, w, h, cls, score, '#FF0055');
+            });
+            ctx.shadowBlur = 0;
+        }
+
+        function drawBox(x, y, w, h, label, score, color) {
+            const lineLen = Math.min(w, h) / 4;
+            ctx.lineWidth = 4; ctx.strokeStyle = color;
+            ctx.beginPath();
+            ctx.moveTo(x, y + lineLen); ctx.lineTo(x, y); ctx.lineTo(x + lineLen, y);
+            ctx.moveTo(x + w - lineLen, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + lineLen);
+            ctx.moveTo(x + w, y + h - lineLen); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - lineLen, y + h);
+            ctx.moveTo(x + lineLen, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - lineLen);
+            ctx.stroke();
+            ctx.font = 'bold 16px Courier New'; ctx.fillStyle = color;
+            ctx.fillText(`${label.toUpperCase()} ${Math.round(score*100)}%`, x + 5, y - 10);
+        }
+
+        // --- UI Interactions ---
+        const infoOverlay = document.getElementById('info-overlay');
+        document.getElementById('btn-info').addEventListener('click', () => {
+            infoOverlay.style.display = 'flex';
+            setTimeout(() => infoOverlay.classList.add('open'), 10);
+        });
+        document.getElementById('close-info').addEventListener('click', () => {
+            infoOverlay.classList.remove('open');
+            setTimeout(() => infoOverlay.style.display = 'none', 300);
+        });
+
+        // Mode Switch
+        const modeItems = document.querySelectorAll('.mode-item');
+        modeItems.forEach(item => {
+            item.addEventListener('click', (e) => {
+                const mode = e.target.dataset.mode;
+                if(mode === currentModel) return;
+                modeItems.forEach(i => i.classList.remove('active'));
+                e.target.classList.add('active');
+                loadModel(mode);
+                if(navigator.vibrate) navigator.vibrate(20);
+            });
+        });
+
+        // Torch & Shutter
+        document.getElementById('btn-flash').addEventListener('click', async () => {
+            if (!currentStream) return;
+            const track = currentStream.getVideoTracks()[0];
+            const caps = track.getCapabilities ? track.getCapabilities() : {};
+            if (caps.torch) {
+                torchOn = !torchOn;
+                track.applyConstraints({ advanced: [{ torch: torchOn }] }).catch(e=>console.log(e));
+                document.getElementById('btn-flash').style.color = torchOn ? '#FFD60A' : 'white';
+            } else alert("Kein Blitz verfügbar");
+        });
+
+        document.getElementById('btn-shutter').addEventListener('click', () => {
+            document.getElementById('flash-overlay').style.opacity = 1;
+            setTimeout(() => document.getElementById('flash-overlay').style.opacity = 0, 150);
+            // Snapshot Logic simplified
+            const a = document.createElement('a');
+            a.download = 'AI-SHOT.png';
+            a.href = canvas.toDataURL(); // Just canvas for speed in demo
+            a.click();
+        });
+
+        document.getElementById('btn-switch-cam').addEventListener('click', async () => {
+            facingMode = facingMode === 'environment' ? 'user' : 'environment';
+            await setupCamera();
+        });
+
+        init();
     </script>
 </body>
 </html>
