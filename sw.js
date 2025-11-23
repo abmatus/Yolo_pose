@@ -1,10 +1,12 @@
 // ÄNDERE v1 ZU v2 (oder höher), damit der Browser Updates lädt!
-const CACHE_NAME = 'pose-cam-v3'; 
+const CACHE_NAME = 'pose-cam-v4'; 
 
 const urlsToCache = [
   './',
   './index.html',
-  './manifest.json'
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png'
 ];
 
 self.addEventListener('install', event => {
