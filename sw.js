@@ -1,5 +1,5 @@
 // ÄNDERE v1 ZU v2 (oder höher), damit der Browser Updates lädt!
-const CACHE_NAME = 'pose-cam-v2'; 
+const CACHE_NAME = 'pose-cam-v3'; 
 
 const urlsToCache = [
   './',
