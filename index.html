@@ -7,12 +7,13 @@
     <link rel="manifest" href="manifest.json">
     
     <!-- TensorFlow.js Libraries -->
-    <!-- WICHTIG: Core muss vor den Backends geladen werden -->
+    <!-- WICHTIG: Die Reihenfolge ist entscheidend. Core -> Converter -> Backends -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-    <!-- CPU Backend (Fallback zwingend nötig für Coco-SSD!) -->
+    
+    <!-- Backend CPU: Zwingend erforderlich für Coco-SSD Post-Processing! -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu"></script>
-    <!-- WebGL Backend (Für Performance) -->
+    <!-- Backend WebGL: Für schnelle GPU-Berechnung -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
     
     <!-- Models -->
@@ -210,12 +211,11 @@
     </div>
 
     <script>
-        // PWA Helper: Nur registrieren, wenn Protokoll unterstützt wird (http/https),
-        // sonst wirft die Preview-Umgebung (blob:) Fehler.
+        // PWA Helper mit erweiterter Überprüfung für Service Worker in Dev-Umgebungen
         if ('serviceWorker' in navigator && (window.location.protocol.indexOf('http') === 0)) {
             navigator.serviceWorker.register('./sw.js')
                 .then(reg => console.log('Service Worker registriert'))
-                .catch(err => console.log('SW Fail (Kann in Dev ignoriert werden):', err));
+                .catch(err => console.log('Service Worker übersprungen (Dev Mode):', err));
         }
 
         // --- Elements ---
@@ -243,7 +243,7 @@
 
         // --- Initialization ---
         async function init() {
-            // WICHTIG: WebGL Backend priorisieren, aber CPU muss geladen sein (siehe Head-Tags)
+            // WICHTIG: WebGL Backend ist Standard, aber CPU muss verfügbar sein
             await tf.setBackend('webgl');
             
             // Erst Kamera starten
@@ -282,6 +282,7 @@
                 });
             } catch (err) {
                 console.error("Camera fail", err);
+                // Nur warnen wenn nicht im Iframe, um unnötige Alerts in der Vorschau zu vermeiden
                 if (window.self === window.top) {
                    alert("Kamera-Zugriff verweigert oder nicht verfügbar.");
                 }
@@ -291,32 +292,19 @@
         async function toggleTorch() {
             if (!currentStream) return;
             const track = currentStream.getVideoTracks()[0];
-            const capabilities = track.getCapabilities();
+            const capabilities = track.getCapabilities ? track.getCapabilities() : {};
 
-            // Check if torch is supported
-            if (capabilities && capabilities.torch) {
+            if (capabilities.torch) {
                 torchOn = !torchOn;
                 try {
                     await track.applyConstraints({
                         advanced: [{ torch: torchOn }]
                     });
                     
-                    // UI Update nach Erfolg
+                    // UI Update
                     flashBtn.style.color = torchOn ? '#FFD60A' : 'white';
-                    const iconPath = torchOn 
-                        ? "M7 2v11h3v9l7-12h-4l4-8z" 
-                        : "M3.27 3L2 4.27l5 5V13h3v9l3.58-6.14L17.73 20 19 18.73 3.27 3zM7 2v11h3v9l7-12h-4l4-8z"; // Simuliertes "Off" icon, hier vereinfacht
-                    
-                    // Bei echtem Blitz-Icon-Wechsel bräuchten wir zwei SVG Pfade
-                    if(torchOn) {
-                         flashBtn.style.backgroundColor = "rgba(255, 214, 10, 0.2)";
-                    } else {
-                         flashBtn.style.backgroundColor = "rgba(0,0,0,0.3)";
-                    }
-
-                } catch (e) {
-                    console.error("Torch error", e);
-                }
+                    flashBtn.style.background = torchOn ? 'rgba(255, 214, 10, 0.2)' : 'rgba(0,0,0,0.3)';
+                } catch(e) { console.error("Torch error:", e); }
             } else {
                 alert("Blitz nicht verfügbar auf diesem Gerät/Kamera.");
             }
@@ -328,7 +316,6 @@
             fpsBadge.innerText = "LOADING AI...";
             fpsBadge.style.color = "white";
 
-            // Cleanup old model
             if (detector) {
                 if(detector.dispose) detector.dispose();
                 detector = null;
@@ -344,7 +331,7 @@
                         modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
                     });
                 } else {
-                    // CocoSSD benötigt manchmal explizit geladene Backends
+                    // CocoSSD lädt intern, benötigt aber das nun eingebundene CPU-Backend
                     detector = await cocoSsd.load();
                 }
 
@@ -356,9 +343,9 @@
                 
                 render();
             } catch (err) {
-                console.error("Model load error:", err);
+                console.error("AI Loading Error:", err);
                 fpsBadge.innerText = "ERROR";
-                alert("Fehler beim Laden des AI Modells: " + err.message);
+                alert("Fehler beim Laden: " + err.message);
             }
         }
 
@@ -386,7 +373,7 @@
                         drawObjects(predictions);
                     }
                 } catch(e) { 
-                    console.warn(e); 
+                    console.warn("Inference error:", e); 
                 }
             }
             requestAnimationFrame(render);
