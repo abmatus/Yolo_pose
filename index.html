@@ -4,22 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>AI Vision Pro</title>
-    <link rel="manifest" href="manifest.json">
     
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <link rel="manifest" href="./manifest.json">
     
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
 
     <style>
         :root {
             --accent: #FFD60A; /* Cyber Yellow */
             --bg-glass: rgba(0, 0, 0, 0.4);
-            --text-active: #ffffff;
-            --text-inactive: rgba(255, 255, 255, 0.5);
             --safe-top: env(safe-area-inset-top, 20px);
             --safe-bottom: env(safe-area-inset-bottom, 20px);
         }
@@ -28,279 +23,365 @@
 
         body { 
             margin: 0; background: #000; overflow: hidden; height: 100vh; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            user-select: none;
-            touch-action: manipulation;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+            user-select: none; color: white;
         }
 
-        /* --- Fullscreen Viewfinder --- */
-        #view-container { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            background: #000; z-index: 1;
-        }
-        
-        video { 
-            width: 100%; height: 100%; object-fit: cover; 
-            transform: scale(1.0); transition: transform 0.3s;
-        }
-        
-        canvas { 
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            object-fit: cover; pointer-events: none;
-        }
+        /* Video & Canvas */
+        #view-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
 
-        #flash-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: white; opacity: 0; pointer-events: none; z-index: 100;
-            transition: opacity 0.1s ease-out;
-        }
-
-        /* --- Info Overlay --- */
-        #info-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(10, 10, 10, 0.95); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
-            z-index: 150; display: none; flex-direction: column;
-            padding: 20px; overflow-y: auto; color: white;
-            opacity: 0; transition: opacity 0.3s ease;
-        }
-        
-        #info-overlay.open { opacity: 1; }
-
-        .info-content {
-            margin-top: calc(var(--safe-top) + 60px);
-            padding-bottom: calc(var(--safe-bottom) + 20px);
-            max-width: 600px; margin-left: auto; margin-right: auto; width: 100%;
-        }
-
-        .info-header {
-            display: flex; justify-content: space-between; align-items: center;
-            position: absolute; top: calc(var(--safe-top) + 15px); right: 20px; left: 20px;
-        }
-
-        .info-close-btn {
-            background: rgba(255,255,255,0.1); border: none; width: 40px; height: 40px;
-            border-radius: 50%; color: white; font-size: 24px; cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
-            margin-left: auto;
-        }
-
-        .info-section { margin-bottom: 35px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 20px; }
-        .info-title { 
-            color: var(--accent); font-size: 14px; font-weight: 800; 
-            margin-bottom: 12px; text-transform: uppercase; letter-spacing: 2px; 
-            border-left: 3px solid var(--accent); padding-left: 10px;
-        }
-        .info-text { font-size: 15px; line-height: 1.6; color: #e0e0e0; margin-bottom: 10px; }
-        .info-code {
-            background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.2);
-            padding: 10px; border-radius: 6px; font-family: monospace; font-size: 13px; color: #aaffaa;
-            display: block; margin: 10px 0; white-space: pre-wrap; word-break: break-all;
-        }
-        .info-list { list-style: none; padding: 0; margin: 0; }
-        .info-list li { margin-bottom: 8px; padding-left: 20px; position: relative; color: #ccc; font-size: 14px; }
-        .info-list li::before { content: "•"; color: var(--accent); position: absolute; left: 0; font-weight: bold; }
-        
-        /* Buttons in Info */
-        .action-btn {
-            background: var(--accent); color: black; border: none; padding: 12px 20px;
-            border-radius: 8px; font-weight: bold; width: 100%; margin-top: 10px;
-            cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 10px;
-        }
-        .action-btn.secondary { background: rgba(255,255,255,0.15); color: white; }
-
-        /* Hidden File Input */
-        #model-upload { display: none; }
-
-        /* --- HUD Layer --- */
-        #hud {
+        /* UI Layer */
+        #ui-layer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
             display: flex; flex-direction: column; justify-content: space-between;
-            pointer-events: none;
+            pointer-events: none; /* Klicks gehen durch */
         }
 
         /* Top Bar */
-        .top-controls {
+        .top-bar {
             padding: calc(var(--safe-top) + 10px) 20px 0;
             display: flex; justify-content: space-between; align-items: center;
             pointer-events: auto;
-            gap: 10px;
         }
-        
-        .top-left-group, .top-right-group {
-            display: flex; gap: 10px; align-items: center;
-        }
+
+        .btn-group { display: flex; gap: 12px; }
 
         .icon-btn {
-            background: rgba(0,0,0,0.3); backdrop-filter: blur(10px);
-            border: none; border-radius: 50%; width: 44px; height: 44px;
+            background: rgba(0,0,0,0.4); backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px; width: 48px; height: 48px;
             display: flex; align-items: center; justify-content: center;
-            color: white; cursor: pointer; transition: all 0.2s;
+            color: white; cursor: pointer; transition: 0.2s;
         }
-        .icon-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.2); }
-        .icon-btn svg { width: 24px; height: 24px; fill: white; }
-        
-        /* Active State für Toggle Buttons */
-        .icon-btn.active {
-            background: rgba(255, 214, 10, 0.2);
-            border: 1px solid var(--accent);
-        }
-        .icon-btn.active svg { fill: var(--accent); }
+        .icon-btn:active { transform: scale(0.95); background: rgba(255,255,255,0.2); }
+        .icon-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(255, 214, 10, 0.15); }
+        .icon-btn svg { width: 24px; height: 24px; fill: currentColor; }
 
-        #btn-install-top {
-            display: none; /* Initial hidden */
-            background: rgba(66, 133, 244, 0.3); /* Google Blue tint */
-        }
+        /* Install Button Special Style */
+        #btn-install { display: none; background: rgba(66, 133, 244, 0.2); border-color: #4285f4; }
 
-        #fps-badge {
-            font-size: 12px; font-weight: 700; color: var(--accent);
-            background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px;
-            font-family: monospace; letter-spacing: 1px;
+        /* Status Badge */
+        #status-pill {
+            background: rgba(0,0,0,0.6); padding: 6px 12px; border-radius: 20px;
+            font-size: 12px; font-family: monospace; color: var(--accent);
+            border: 1px solid rgba(255, 214, 10, 0.3);
         }
 
         /* Bottom Controls */
-        .bottom-controls {
+        .bottom-bar {
             padding-bottom: calc(var(--safe-bottom) + 30px);
-            background: linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%);
+            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
             display: flex; flex-direction: column; align-items: center; gap: 20px;
             pointer-events: auto;
         }
 
-        /* Mode Selector */
-        .mode-selector { display: flex; gap: 30px; margin-bottom: 10px; }
-        .mode-item {
-            font-size: 13px; font-weight: 600; letter-spacing: 1px;
-            color: var(--text-inactive); text-transform: uppercase;
-            cursor: pointer; transition: 0.3s; padding: 5px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        .mode-switch { display: flex; gap: 20px; }
+        .mode-item { 
+            font-size: 13px; font-weight: 700; letter-spacing: 1px; color: rgba(255,255,255,0.5); 
+            padding: 5px 10px; cursor: pointer;
         }
-        .mode-item.active { color: var(--accent); transform: scale(1.1); }
+        .mode-item.active { color: var(--accent); text-shadow: 0 0 10px rgba(255, 214, 10, 0.5); }
 
-        /* Shutter */
-        .shutter-row { display: flex; align-items: center; justify-content: center; width: 100%; position: relative; }
-        .shutter-btn {
-            width: 80px; height: 80px; border-radius: 50%; border: 4px solid white; background: transparent;
-            display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; z-index: 20;
-        }
-        .shutter-inner { width: 68px; height: 68px; border-radius: 50%; background: white; transition: 0.2s; }
-        .shutter-btn:active .shutter-inner { transform: scale(0.9); opacity: 0.8; }
-        .switch-btn-container { position: absolute; right: 40px; }
-
-        /* Loading */
+        /* Loader */
         #loader {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; z-index: 200; display: flex; flex-direction: column;
-            justify-content: center; align-items: center; transition: opacity 0.5s;
+            position: absolute; top:0; left:0; width:100%; height:100%; background:#000; z-index: 100;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            transition: opacity 0.5s;
         }
         .spinner {
-            width: 50px; height: 50px; border: 3px solid rgba(255,255,255,0.1);
-            border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;
+            width: 40px; height: 40px; border: 4px solid #222; border-top-color: var(--accent);
+            border-radius: 50%; animation: spin 1s infinite linear;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-        .loader-text { margin-top: 20px; color: #666; font-size: 12px; letter-spacing: 2px; }
 
+        /* ERROR CONSOLE (Retter in der Not auf dem Handy) */
+        #error-log {
+            position: absolute; top: 10%; left: 5%; width: 90%; background: rgba(50,0,0,0.9);
+            border: 2px solid red; padding: 10px; color: #ffaaaa; font-family: monospace; font-size: 12px;
+            z-index: 9999; display: none; word-wrap: break-word;
+        }
     </style>
 </head>
 <body>
 
+    <div id="error-log"></div>
+
     <div id="loader">
         <div class="spinner"></div>
-        <div class="loader-text">AI MODULE LOADING</div>
+        <div id="loader-text" style="margin-top:20px; font-size:12px; letter-spacing:1px; color:#666;">SYSTEM START...</div>
     </div>
 
     <div id="view-container">
         <video id="video" playsinline muted autoplay></video>
         <canvas id="output"></canvas>
     </div>
-    
-    <div id="flash-overlay"></div>
 
-    <div id="info-overlay">
-        <div class="info-header">
-            <h2 style="margin:0; font-size:20px; letter-spacing:1px;">EINSTELLUNGEN & INFO</h2>
-            <button class="info-close-btn" id="close-info">×</button>
+    <div id="ui-layer">
+        
+        <div class="top-bar">
+            <div class="btn-group">
+                <button class="icon-btn" id="btn-install">
+                    <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                </button>
+                <button class="icon-btn" id="btn-angles">
+                    <svg viewBox="0 0 24 24"><path d="M18 7l-5-5-5 5H2v13h20V7h-4zm-5-3l2.5 2.5h-5L13 4zm5 14H6V9h2.29l3.71-3.71L15.71 9H18v9z"/></svg>
+                </button>
+            </div>
+            <div id="status-pill">INIT...</div>
         </div>
-        <div class="info-content">
-            
-            <div class="info-section" id="install-section" style="display:none;">
-                <div class="info-title">App Installieren</div>
-                <div class="info-text">Installiere die App für Vollbild-Modus und bessere Performance.</div>
-                <button class="action-btn" id="btn-install">
-                    <svg style="width:20px;" viewBox="0 0 24 24" fill="black"><path d="M5 20h14v-2H5v2zM19 9h-4V3H9v6H5l7 7 7-7z"/></svg>
-                    JETZT INSTALLIEREN
-                </button>
-            </div>
 
-            <div class="info-section">
-                <div class="info-title">Winkelmessung (Neu)</div>
-                <div class="info-text">
-                    Aktiviere den Winkel-Modus über das Symbol in der oberen Leiste.
-                    <br><br>
-                    <strong>Features:</strong>
-                    <ul class="info-list">
-                        <li>Misst Innenwinkel von Ellbogen, Knien, Schultern und Hüften.</li>
-                        <li>Anzeige erfolgt in Echtzeit direkt am Gelenk.</li>
-                        <li>Perfekt für Fitness, Yoga oder Physio-Checks.</li>
-                    </ul>
-                </div>
+        <div class="bottom-bar">
+            <div class="mode-switch">
+                <div class="mode-item active" id="mode-pose">POSE</div>
+                <div class="mode-item" id="mode-object">OBJECT</div>
             </div>
-
-            <div class="info-section">
-                <div class="info-title">Eigenes Modell verwenden</div>
-                <div class="info-text">
-                    Lade dein eigenes <strong>YOLOv8</strong> Modell (.pt exportiert zu tfjs).
-                    <div class="info-code">yolo export model=best.pt format=tfjs</div>
-                    Wähle beim Upload <strong>model.json</strong> UND alle <strong>.bin</strong> Dateien gleichzeitig aus.
-                </div>
-
-                <button class="action-btn secondary" id="btn-upload">
-                    <svg style="width:20px; fill:white;" viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
-                    DATEIEN AUSWÄHLEN
-                </button>
-                <input type="file" id="model-upload" multiple accept=".json,.bin">
-                <div id="upload-status" style="margin-top:10px; font-size:12px; color:var(--accent);"></div>
-            </div>
-
-            <div class="info-section">
-                <div class="info-title">Über die Modelle</div>
-                <div class="info-text">
-                    <strong>MoveNet (Pose):</strong> Erkennt 17 Körperpunkte + Winkelanalyse.
-                    <br>
-                    <strong>Coco-SSD (Object):</strong> Erkennt 80 Standard-Objekte.
-                </div>
-            </div>
-            
         </div>
     </div>
 
-    <div id="hud">
-        <div class="top-controls">
-            <div class="top-left-group">
-                <button class="icon-btn" id="btn-install-top">
-                    <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
-                </button>
-                
-                <button class="icon-btn" id="btn-toggle-angles">
-                    <svg viewBox="0 0 24 24">
-                        <path d="M18 7l-5-5-5 5H2v13h20V7h-4zm-5-3l2.5 2.5h-5L13 4zm5 14H6V9h2.29l3.71-3.71L15.71 9H18v9z"/>
-                        <circle cx="12" cy="15" r="1.5"/>
-                    </svg>
-                </button>
-            </div>
+    <script>
+        // --- 0. Fehlerbehandlung (Zuerst laden!) ---
+        const errorLog = document.getElementById('error-log');
+        const loader = document.getElementById('loader');
+        const loaderText = document.getElementById('loader-text');
 
-            <div class="top-right-group">
-                <button class="icon-btn" id="btn-flash">
-                    <svg id="icon-flash-off" viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
-                </button>
-                
-                <div id="fps-badge">AI READY</div>
-                
-                <button class="icon-btn" id="btn-info">
-                    <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-                </button>
-            </div>
-        </div>
+        function showError(msg) {
+            console.error(msg);
+            loader.style.display = 'none'; // Loader weg
+            errorLog.style.display = 'block';
+            errorLog.innerHTML += `> ${msg}<br>`;
+        }
 
-        <div class="bottom-controls">
-            <div class="mode-selector">
-                <div class="mode-item active" data-mode="pose">POSE</div>
-                <div class="mode-item" data-mode="object">OBJECT</div>
+        window.onerror = function(msg, source, lineno) {
+            showError(`JS Error: ${msg} (Line ${lineno})`);
+        };
+
+        // --- 1. PWA & Service Worker ---
+        let deferredPrompt;
+        const btnInstall = document.getElementById('btn-install');
+
+        // Service Worker registrieren (GitHub Pages kompatibel)
+        if ('serviceWorker' in navigator) {
+            // Wir nutzen ./sw.js für relative Pfade
+            navigator.serviceWorker.register('./sw.js')
+                .then(() => console.log('SW Ready'))
+                .catch(err => console.log('SW Fail:', err));
+        }
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            btnInstall.style.display = 'flex'; // Button zeigen
+        });
+
+        btnInstall.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            if (outcome === 'accepted') btnInstall.style.display = 'none';
+            deferredPrompt = null;
+        });
+
+        // --- 2. App Logik ---
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('output');
+        const ctx = canvas.getContext('2d');
+        const statusPill = document.getElementById('status-pill');
+        const btnAngles = document.getElementById('btn-angles');
+        
+        let detector;
+        let currentMode = 'pose';
+        let showAngles = false;
+        let animationId;
+        let isReady = false;
+
+        // Toggle Buttons
+        btnAngles.addEventListener('click', () => {
+            showAngles = !showAngles;
+            btnAngles.classList.toggle('active', showAngles);
+        });
+
+        document.getElementById('mode-pose').addEventListener('click', () => switchMode('pose'));
+        document.getElementById('mode-object').addEventListener('click', () => switchMode('object'));
+
+        // Haupt-Start Funktion
+        async function main() {
+            try {
+                loaderText.innerText = "LADE TENSORFLOW...";
+                await tf.setBackend('webgl');
+                await tf.ready();
+                
+                loaderText.innerText = "STARTE KAMERA...";
+                await setupCamera();
+
+                loaderText.innerText = "LADE KI MODELL...";
+                await loadModel('pose');
+
+                // Start
+                loader.style.opacity = 0;
+                setTimeout(() => loader.style.display = 'none', 500);
+                isReady = true;
+                statusPill.innerText = "BEREIT";
+                render();
+
+            } catch (e) {
+                showError("Start Fehler: " + e.message);
+            }
+        }
+
+        async function setupCamera() {
+            // iOS/Android Kompatibilität prüfen
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                throw new Error("Kamera API nicht verfügbar (kein HTTPS?)");
+            }
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: {ideal: 640}, height: {ideal: 480} },
+                audio: false
+            });
+            video.srcObject = stream;
+            
+            return new Promise((resolve) => {
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    video.play();
+                    resolve();
+                };
+            });
+        }
+
+        async function loadModel(mode) {
+            isReady = false;
+            statusPill.innerText = "LADE MODELL...";
+            currentMode = mode;
+            
+            // UI Update
+            document.getElementById('mode-pose').classList.toggle('active', mode === 'pose');
+            document.getElementById('mode-object').classList.toggle('active', mode === 'object');
+
+            if(detector) {
+                detector = null; // Speicher freigeben (einfach)
+            }
+
+            try {
+                if (mode === 'pose') {
+                    // PoseDetection API
+                    const model = poseDetection.SupportedModels.MoveNet;
+                    detector = await poseDetection.createDetector(model, { 
+                        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING 
+                    });
+                } else {
+                    // Coco SSD API
+                    detector = await cocoSsd.load();
+                }
+                isReady = true;
+                statusPill.innerText = mode === 'pose' ? "MOVENET" : "COCO-SSD";
+            } catch (e) {
+                showError("Modell Fehler: " + e.message);
+            }
+        }
+
+        async function switchMode(mode) {
+            if(currentMode === mode) return;
+            await loadModel(mode);
+        }
+
+        // --- 3. Render & Mathematik ---
+        function calculateAngle(a, b, c) {
+            if(!a || !b || !c) return null;
+            const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+            let angle = Math.abs(radians * 180.0 / Math.PI);
+            if (angle > 180.0) angle = 360 - angle;
+            return Math.round(angle);
+        }
+
+        async function render() {
+            if (!isReady || !detector) {
+                requestAnimationFrame(render);
+                return;
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            try {
+                if (currentMode === 'pose') {
+                    const poses = await detector.estimatePoses(video);
+                    if (poses.length > 0) drawPose(poses[0].keypoints);
+                } else {
+                    const predictions = await detector.detect(video);
+                    drawObjects(predictions);
+                }
+            } catch (e) {
+                console.warn(e);
+            }
+            requestAnimationFrame(render);
+        }
+
+        function drawPose(kp) {
+            const minScore = 0.3;
+            // Map erstellen
+            const k = kp.reduce((acc, p) => { acc[p.name] = p; return acc; }, {});
+
+            // Linien zeichnen (einfache Methode)
+            const pairs = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
+            ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+            
+            pairs.forEach(([i, j]) => {
+                const p1 = kp[i]; const p2 = kp[j];
+                if(p1.score > minScore && p2.score > minScore) {
+                    ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.stroke();
+                }
+            });
+
+            // Punkte zeichnen
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent');
+            kp.forEach(p => {
+                if(p.score > minScore) {
+                    ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, 2 * Math.PI); ctx.fill();
+                }
+            });
+
+            // Winkel berechnen
+            if(showAngles) {
+                const joints = [
+                    [k['left_shoulder'], k['left_elbow'], k['left_wrist']],
+                    [k['right_shoulder'], k['right_elbow'], k['right_wrist']],
+                    [k['left_hip'], k['left_knee'], k['left_ankle']],
+                    [k['right_hip'], k['right_knee'], k['right_ankle']]
+                ];
+
+                ctx.font = "bold 16px monospace";
+                ctx.textAlign = "center";
+                ctx.fillStyle = "#FFD60A";
+                ctx.strokeStyle = "black";
+                ctx.lineWidth = 3;
+
+                joints.forEach(set => {
+                    const angle = calculateAngle(set[0], set[1], set[2]);
+                    if(angle && set[1].score > minScore) {
+                        ctx.strokeText(angle + "°", set[1].x, set[1].y - 20);
+                        ctx.fillText(angle + "°", set[1].x, set[1].y - 20);
+                    }
+                });
+            }
+        }
+
+        function drawObjects(preds) {
+            ctx.lineWidth = 3; ctx.strokeStyle = '#00E5FF';
+            ctx.font = "16px sans-serif"; ctx.fillStyle = '#00E5FF';
+            
+            preds.forEach(p => {
+                const [x, y, w, h] = p.bbox;
+                ctx.strokeRect(x, y, w, h);
+                ctx.fillText(`${p.class} ${Math.round(p.score*100)}%`, x, y - 5);
+            });
+        }
+
+        // Starten
+        main();
+
+    </script>
+</body>
+</html>
