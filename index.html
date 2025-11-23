@@ -3,69 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pixel Pose Cam + Winkel</title>
+    <title>Pixel Pose PWA</title>
     <link rel="manifest" href="manifest.json">
     <style>
-        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif;}
+        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
         #video { display: none; }
-
-        /* Container für UI Elemente über dem Canvas */
-        #ui-container {
+        
+        /* UI Container */
+        .overlay-container {
             position: absolute;
-            top: 20px;
-            left: 20px;
-            z-index: 10;
+            top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none;
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        /* Button Gruppe oben links */
+        .controls {
             display: flex;
             flex-direction: column;
             gap: 10px;
+            align-items: flex-start;
+            pointer-events: auto;
+        }
+
+        button {
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            padding: 10px 15px;
+            font-size: 14px;
+            border-radius: 8px;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            transition: all 0.2s;
+        }
+        
+        button:active { transform: scale(0.95); }
+
+        #toggleBtn.active {
+            background: rgba(50, 205, 50, 0.9); /* Grün */
+            color: white;
+        }
+
+        #installBtn {
+            display: none; /* Standardmäßig versteckt */
+            background: #4285F4; /* Google Blau */
+            color: white;
         }
 
         #status {
-            color: lime; font-family: monospace;
-            background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px;
+            color: lime;
+            font-family: monospace;
+            background: rgba(0,0,0,0.6);
+            padding: 10px;
+            border-radius: 8px;
+            align-self: flex-start;
+            pointer-events: none;
         }
-
-        /* Styling für den Toggle Switch */
-        .toggle-container {
-            display: flex;
-            align-items: center;
-            background: rgba(0,0,0,0.5);
-            padding: 5px 10px;
-            border-radius: 5px;
-            color: white;
-        }
-        .switch {
-            position: relative; display: inline-block; width: 40px; height: 20px; margin-right: 10px;
-        }
-        .switch input { opacity: 0; width: 0; height: 0; }
-        .slider {
-            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #ccc; transition: .4s; border-radius: 20px;
-        }
-        .slider:before {
-            position: absolute; content: ""; height: 16px; width: 16px; left: 2px; bottom: 2px;
-            background-color: white; transition: .4s; border-radius: 50%;
-        }
-        input:checked + .slider { background-color: #2196F3; }
-        input:checked + .slider:before { transform: translateX(20px); }
     </style>
 </head>
 <body>
 
     <video id="video" playsinline muted></video>
     <canvas id="output"></canvas>
-
-    <div id="ui-container">
-        <div id="status">Lade Modell...</div>
-        
-        <div class="toggle-container">
-             <label class="switch">
-                <input type="checkbox" id="angleToggle">
-                <span class="slider"></span>
-            </label>
-            <span>Winkel anzeigen</span>
+    
+    <div class="overlay-container">
+        <div class="controls">
+            <button id="installBtn">📲 App Installieren</button>
+            <button id="toggleBtn">Winkel anzeigen: AUS</button>
         </div>
+        
+        <div id="status">Warte auf Kamera...</div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -74,162 +86,135 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
 
     <script>
+        // --- PWA Installation Logik ---
+        let deferredPrompt;
+        const installBtn = document.getElementById('installBtn');
+
+        // Service Worker registrieren (mit Reload Logik für Updates)
         if ('serviceWorker' in navigator) {
-             // navigator.serviceWorker.register('./sw.js'); // Auskommentiert für einfacheres lokales Testen ohne HTTPS
+            navigator.serviceWorker.register('./sw.js').then(reg => {
+                reg.addEventListener('updatefound', () => {
+                    const newWorker = reg.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // Neue Version verfügbar!
+                            if(confirm("Ein Update ist verfügbar. App neu laden?")) {
+                                window.location.reload();
+                            }
+                        }
+                    });
+                });
+            });
         }
 
+        // Browser Event abfangen
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault(); // Standard-Banner verhindern
+            deferredPrompt = e; // Event speichern
+            installBtn.style.display = 'block'; // Button anzeigen
+        });
+
+        // Klick auf Installieren
+        installBtn.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt(); // Prompt zeigen
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`User choice: ${outcome}`);
+            deferredPrompt = null;
+            installBtn.style.display = 'none'; // Button wieder verstecken
+        });
+
+
+        // --- App Logik (Wie zuvor) ---
         const video = document.getElementById('video');
         const canvas = document.getElementById('output');
         const ctx = canvas.getContext('2d');
         const status = document.getElementById('status');
-        const angleToggle = document.getElementById('angleToggle');
-        
+        const toggleBtn = document.getElementById('toggleBtn');
         let detector;
-        let showAngles = false; // Status des Toggles
+        let showAngles = false;
+        const minConfidence = 0.3;
 
-        // Event Listener für den Toggle Button
-        angleToggle.addEventListener('change', (e) => {
-            showAngles = e.target.checked;
+        toggleBtn.addEventListener('click', () => {
+            showAngles = !showAngles;
+            toggleBtn.innerText = showAngles ? "Winkel anzeigen: EIN" : "Winkel anzeigen: AUS";
+            toggleBtn.classList.toggle('active', showAngles);
         });
 
         async function setupCamera() {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: 640, height: 480 },
+                video: { facingMode: 'environment', width: {ideal: 640}, height: {ideal: 480} },
                 audio: false
             });
             video.srcObject = stream;
-            return new Promise((resolve) => {
-                video.onloadedmetadata = () => {
-                    video.play();
-                    resolve(video);
-                };
-            });
+            return new Promise((resolve) => video.onloadedmetadata = () => { video.play(); resolve(); });
+        }
+
+        function calculateAngle(a, b, c) {
+            if (!a || !b || !c || a.score < minConfidence || b.score < minConfidence || c.score < minConfidence) return null;
+            const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
+            let angle = Math.abs(radians * 180.0 / Math.PI);
+            if (angle > 180.0) angle = 360 - angle;
+            return Math.round(angle);
         }
 
         async function main() {
-            await tf.setBackend('webgl');
-            
-            // Wir nutzen Lightning für schnellere Inferenz auf Mobiles, falls Thunder zu langsam ist
-            // const modelType = poseDetection.movenet.modelType.SINGLEPOSE_THUNDER; 
-            const modelType = poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING;
-
+            await tf.setBackend('webgl'); 
             const model = poseDetection.SupportedModels.MoveNet;
-            const detectorConfig = { modelType: modelType };
-            detector = await poseDetection.createDetector(model, detectorConfig);
+            detector = await poseDetection.createDetector(model, { modelType: poseDetection.movenet.modelType.SINGLEPOSE_THUNDER });
 
-            status.innerText = "Kamera starten...";
             await setupCamera();
-            
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            status.innerText = `MoveNet ${modelType === poseDetection.movenet.modelType.SINGLEPOSE_THUNDER ? 'Thunder' : 'Lightning'} läuft`;
-
+            status.innerHTML = "Bereit. <br>MoveNet Thunder läuft.";
             render();
         }
 
         async function render() {
             if (video.readyState === 4) {
                 const poses = await detector.estimatePoses(video);
-
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
                 if (poses && poses.length > 0) {
-                    drawSkeleton(poses[0].keypoints);
-                    // Wenn Toggle aktiv, Winkel berechnen und zeichnen
-                    if(showAngles) {
-                        drawAngles(poses[0].keypoints);
-                    }
+                    const kp = poses[0].keypoints;
+                    drawSkeletonBase(kp);
+                    if (showAngles) drawJointAngles(kp);
                 }
             }
             requestAnimationFrame(render);
         }
 
-        // --- NEU: Hilfsfunktion zur Winkelberechnung ---
-        function calculateAngle(a, b, c) {
-            // Berechnet den Winkel beim Punkt B (Mitte) mittels atan2
-            const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-            let angle = Math.abs(radians * 180.0 / Math.PI);
-            
-            // Wir wollen immer den Innenwinkel (kleiner als 180 Grad)
-            if (angle > 180.0) {
-                angle = 360.0 - angle;
-            }
-            return Math.round(angle);
-        }
-
-        // --- NEU: Funktion zum Zeichnen der Winkel auf den Canvas ---
-        function drawAngles(keypoints) {
-            const minConfidence = 0.3;
-            ctx.fillStyle = 'white';
-            ctx.strokeStyle = 'black';
-            ctx.lineWidth = 2;
-            ctx.font = 'bold 16px Arial';
-            
-            // Hilfsfunktion um Keypoint nach Namen zu finden
-            const getKp = (name) => keypoints.find(k => k.name === name);
-
-            // Definition der Gelenke, die wir messen wollen (A-B-C, Winkel bei B)
-            const jointsToMeasure = [
-                { name: 'L.Elbow', points: ['left_shoulder', 'left_elbow', 'left_wrist'] },
-                { name: 'R.Elbow', points: ['right_shoulder', 'right_elbow', 'right_wrist'] },
-                { name: 'L.Knee', points: ['left_hip', 'left_knee', 'left_ankle'] },
-                { name: 'R.Knee', points: ['right_hip', 'right_knee', 'right_ankle'] },
-                 // Optional: Schulterwinkel
-                //{ name: 'L.Shoulder', points: ['left_hip', 'left_shoulder', 'left_elbow'] },
-            ];
-
-            jointsToMeasure.forEach(joint => {
-                const a = getKp(joint.points[0]);
-                const b = getKp(joint.points[1]); // Das Gelenk selbst
-                const c = getKp(joint.points[2]);
-
-                // Nur zeichnen, wenn alle 3 Punkte sicher erkannt wurden
-                if (a && b && c && a.score > minConfidence && b.score > minConfidence && c.score > minConfidence) {
-                    const angle = calculateAngle(a, b, c);
-                    
-                    // Text zeichnen (mit schwarzem Rand für bessere Lesbarkeit)
-                    const text = `${angle}°`;
-                    ctx.strokeText(text, b.x + 10, b.y);
-                    ctx.fillText(text, b.x + 10, b.y);
-                }
-            });
-        }
-
-
-        function drawSkeleton(keypoints) {
-            const minConfidence = 0.3;
-            
-            // Punkte
-            keypoints.forEach(kp => {
-                if(kp.score > minConfidence) {
-                    ctx.beginPath();
-                    ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
-                    ctx.fillStyle = 'red';
-                    ctx.fill();
-                }
-            });
-
-            // Linien
-            const connections = [
-                ['nose', 'left_eye'], ['left_eye', 'left_ear'], ['nose', 'right_eye'], ['right_eye', 'right_ear'],
-                ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
+        function drawSkeletonBase(keypoints) {
+             const findKP = (name) => keypoints.find(k => k.name === name);
+             const connections = [['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
                 ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'],
                 ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip'], ['left_hip', 'left_knee'],
-                ['left_knee', 'left_ankle'], ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
-            ];
+                ['left_knee', 'left_ankle'], ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']];
 
-            connections.forEach(([startName, endName]) => {
-                const start = keypoints.find(k => k.name === startName);
-                const end = keypoints.find(k => k.name === endName);
-
+            ctx.lineWidth = 3; ctx.strokeStyle = 'lime';
+            connections.forEach(([s, e]) => {
+                const start = findKP(s), end = findKP(e);
                 if (start && end && start.score > minConfidence && end.score > minConfidence) {
-                    ctx.beginPath();
-                    ctx.moveTo(start.x, start.y);
-                    ctx.lineTo(end.x, end.y);
-                    ctx.lineWidth = 2;
-                    ctx.strokeStyle = 'lime';
-                    ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(start.x, start.y); ctx.lineTo(end.x, end.y); ctx.stroke();
                 }
+            });
+            ctx.fillStyle = 'red';
+            keypoints.forEach(kp => { if(kp.score > minConfidence) { ctx.beginPath(); ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI); ctx.fill(); }});
+        }
+
+        function drawJointAngles(kpArray) {
+            const kpMap = kpArray.reduce((acc, k) => { acc[k.name] = k; return acc; }, {});
+            const joints = [
+                { pts: [kpMap['left_shoulder'], kpMap['left_elbow'], kpMap['left_wrist']], anc: kpMap['left_elbow'] },
+                { pts: [kpMap['right_shoulder'], kpMap['right_elbow'], kpMap['right_wrist']], anc: kpMap['right_elbow'] },
+                { pts: [kpMap['left_hip'], kpMap['left_knee'], kpMap['left_ankle']], anc: kpMap['left_knee'] },
+                { pts: [kpMap['right_hip'], kpMap['right_knee'], kpMap['right_ankle']], anc: kpMap['right_knee'] }
+            ];
+            ctx.font = "bold 18px Arial"; ctx.fillStyle = "yellow"; ctx.strokeStyle = "black"; ctx.lineWidth = 3; ctx.textAlign = "center";
+            joints.forEach(j => {
+                const angle = calculateAngle(j.pts[0], j.pts[1], j.pts[2]);
+                if (angle !== null) { ctx.strokeText(angle + "°", j.anc.x, j.anc.y - 15); ctx.fillText(angle + "°", j.anc.x, j.anc.y - 15); }
             });
         }
 
