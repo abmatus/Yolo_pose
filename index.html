@@ -2,134 +2,291 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pixel 9a Pose Detection</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>AI Vision Cam</title>
     <link rel="manifest" href="manifest.json">
-    <style>
-        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
-        #video { display: none; } /* Wir rendern das Video manuell auf den Canvas */
-        #status {
-            position: absolute; bottom: 20px; left: 20px; color: lime; font-family: monospace;
-            background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; pointer-events: none;
-        }
-    </style>
-</head>
-<body>
-
-    <video id="video" playsinline muted></video>
-    <canvas id="output"></canvas>
-    <div id="status">Lade Modell...</div>
-
+    
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+    <style>
+        :root {
+            --primary: #00ff88; /* Cyber Green */
+            --secondary: #00ccff; /* Cyber Blue */
+            --bg-glass: rgba(10, 10, 10, 0.75);
+            --text: #ffffff;
+        }
+
+        body { margin: 0; background: #000; overflow: hidden; height: 100vh; font-family: 'Courier New', monospace; }
+        
+        /* Video & Canvas Layer */
+        #cam-wrapper { position: relative; width: 100%; height: 100%; }
+        #video { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+        #output { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 2; }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
+            display: flex; flex-direction: column; justify-content: space-between;
+            pointer-events: none;
+        }
+
+        .bar {
+            padding: 15px; pointer-events: auto; display: flex; align-items: center;
+            background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+        }
+        .bottom-bar {
+            background: linear-gradient(0deg, rgba(0,0,0,0.9) 0%, transparent 100%);
+            justify-content: center; gap: 20px; padding-bottom: 30px;
+        }
+
+        /* Controls */
+        #fps-display { color: var(--primary); font-weight: bold; font-size: 14px; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; border: 1px solid var(--primary); }
+        
+        .btn {
+            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
+            color: var(--text); padding: 10px 16px; border-radius: 8px; cursor: pointer;
+            backdrop-filter: blur(10px); transition: 0.2s; font-family: inherit; font-weight: bold;
+        }
+        .btn:active { background: var(--primary); color: #000; transform: scale(0.95); box-shadow: 0 0 15px var(--primary); }
+        
+        .round-btn { border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+
+        /* Select Styling */
+        .model-selector {
+            margin-left: auto; background: rgba(0,0,0,0.6); color: var(--text);
+            border: 1px solid var(--secondary); padding: 8px; border-radius: 6px;
+            outline: none; font-family: inherit;
+        }
+
+        /* Loading Screen */
+        #loader {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; z-index: 50; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; color: var(--primary); transition: opacity 0.5s;
+        }
+        .scanner {
+            width: 100%; height: 4px; background: var(--primary);
+            animation: scan 2s infinite ease-in-out; box-shadow: 0 0 20px var(--primary);
+        }
+        @keyframes scan { 0%, 100% { width: 0; opacity: 0; } 50% { width: 80%; opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <div id="loader">
+        <div style="font-size: 24px; margin-bottom: 20px;">SYSTEM INITIALIZING</div>
+        <div class="scanner"></div>
+        <p id="loader-text" style="margin-top: 20px; color: #666;">Lade neuronale Netze...</p>
+    </div>
+
+    <div id="cam-wrapper">
+        <video id="video" playsinline muted autoplay></video>
+        <canvas id="output"></canvas>
+    </div>
+
+    <div id="ui-layer">
+        <div class="bar top-bar">
+            <div id="fps-display">FPS: 0</div>
+            <select id="model-select" class="model-selector">
+                <option value="pose">🟢 Körper (Pose)</option>
+                <option value="object">🔵 Objekte (Coco)</option>
+            </select>
+        </div>
+        <div class="bar bottom-bar">
+            <button class="btn round-btn" id="cam-switch">🔄</button>
+            <button class="btn" id="info-btn">AI CAM v1.0</button>
+        </div>
+    </div>
 
     <script>
-        // PWA Service Worker registrieren
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js');
-        }
+        if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
 
         const video = document.getElementById('video');
         const canvas = document.getElementById('output');
         const ctx = canvas.getContext('2d');
-        const status = document.getElementById('status');
+        const loader = document.getElementById('loader');
+        const loaderText = document.getElementById('loader-text');
+        const fpsDisplay = document.getElementById('fps-display');
+        const modelSelect = document.getElementById('model-select');
+        const camSwitchBtn = document.getElementById('cam-switch');
+
         let detector;
-        let animationId;
+        let currentModel = 'pose'; // 'pose' oder 'object'
+        let lastFrameTime = 0;
+        let currentStream = null;
+        let isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        let facingMode = 'environment'; // Start mit Rückkamera
 
-        // Setup Kamera
-        async function setupCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment', width: 640, height: 480 },
-                audio: false
-            });
-            video.srcObject = stream;
-            return new Promise((resolve) => {
-                video.onloadedmetadata = () => {
-                    video.play();
-                    resolve(video);
-                };
-            });
-        }
-
-        // Hauptfunktion
+        // --- Initialisierung ---
         async function main() {
-            await tf.setBackend('webgl'); // GPU Beschleunigung auf dem Pixel nutzen
-            
-            // MoveNet Modell laden (Thunder = Hohe Genauigkeit, Lightning = Hohe Speed)
-            const model = poseDetection.SupportedModels.MoveNet;
-            const detectorConfig = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_THUNDER };
-            detector = await poseDetection.createDetector(model, detectorConfig);
-
-            status.innerText = "Kamera starten...";
+            await tf.setBackend('webgl');
             await setupCamera();
+            await loadModel('pose');
             
-            // Canvas Größe anpassen
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            status.innerText = "Inference läuft: MoveNet Thunder";
-
+            loader.style.opacity = 0;
+            setTimeout(() => loader.style.display = 'none', 500);
+            
             render();
         }
 
-        // Render Loop
-        async function render() {
-            if (video.readyState === 4) {
-                // 1. Pose schätzen
-                const poses = await detector.estimatePoses(video);
+        // --- Modell Logik ---
+        async function loadModel(type) {
+            loader.style.display = 'flex';
+            loader.style.opacity = 1;
+            loaderText.innerText = type === 'pose' ? "Lade MoveNet..." : "Lade Coco-SSD...";
+            
+            // Kurze Pause für UI Update
+            await new Promise(r => setTimeout(r, 100));
 
-                // 2. Bild zeichnen
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                // 3. Keypoints zeichnen
-                if (poses && poses.length > 0) {
-                    drawSkeleton(poses[0].keypoints);
-                }
+            if (detector) {
+                if (currentModel === 'pose') detector.dispose ? detector.dispose() : null;
+                // CocoSSD hat keine explizite dispose methode, garbage collector regelt das
             }
-            animationId = requestAnimationFrame(render);
+
+            currentModel = type;
+
+            if (type === 'pose') {
+                const model = poseDetection.SupportedModels.MoveNet;
+                // Lightning ist schneller für Mobile, Thunder genauer. Hier Lightning für FPS.
+                const config = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
+                detector = await poseDetection.createDetector(model, config);
+            } else {
+                detector = await cocoSsd.load();
+            }
+
+            loader.style.opacity = 0;
+            setTimeout(() => loader.style.display = 'none', 500);
         }
 
-        // Hilfsfunktion zum Zeichnen
-        function drawSkeleton(keypoints) {
-            const minConfidence = 0.3;
+        // --- Kamera Logik ---
+        async function setupCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+
+            const constraints = {
+                video: {
+                    facingMode: facingMode,
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                },
+                audio: false
+            };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                video.srcObject = stream;
+                
+                return new Promise((resolve) => {
+                    video.onloadedmetadata = () => {
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        resolve(video);
+                    };
+                });
+            } catch (e) {
+                alert("Kamera Zugriff verweigert oder Fehler: " + e.message);
+            }
+        }
+
+        // --- Event Listeners ---
+        modelSelect.addEventListener('change', (e) => loadModel(e.target.value));
+        
+        camSwitchBtn.addEventListener('click', async () => {
+            facingMode = facingMode === 'user' ? 'environment' : 'user';
+            await setupCamera();
+        });
+
+        // --- Render Loop ---
+        async function render() {
+            // FPS Berechnung
+            const now = performance.now();
+            const fps = 1000 / (now - lastFrameTime);
+            lastFrameTime = now;
+            if (frameCount++ % 10 === 0) fpsDisplay.innerText = `FPS: ${Math.round(fps)}`;
+
+            if (video.readyState === 4 && detector) {
+                // Canvas clearen und Video zeichnen
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // Inference je nach Modell
+                if (currentModel === 'pose') {
+                    const poses = await detector.estimatePoses(video);
+                    if (poses.length > 0) drawPose(poses[0].keypoints);
+                } else {
+                    const predictions = await detector.detect(video);
+                    drawObjects(predictions);
+                }
+            }
+
+            requestAnimationFrame(render);
+        }
+        let frameCount = 0;
+
+        // --- Zeichnen: Pose ---
+        function drawPose(keypoints) {
+            const minConf = 0.3;
             
-            // Punkte zeichnen
-            keypoints.forEach(kp => {
-                if(kp.score > minConfidence) {
+            // Verbindungen
+            const connections = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = '#00ff88';
+
+            connections.forEach(([i, j]) => {
+                const kp1 = keypoints[i];
+                const kp2 = keypoints[j];
+                if (kp1.score > minConf && kp2.score > minConf) {
                     ctx.beginPath();
-                    ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
-                    ctx.fillStyle = 'red';
-                    ctx.fill();
+                    ctx.moveTo(kp1.x, kp1.y);
+                    ctx.lineTo(kp2.x, kp2.y);
+                    ctx.stroke();
                 }
             });
 
-            // Verbindungen definieren (vereinfacht)
-            const connections = [
-                ['nose', 'left_eye'], ['left_eye', 'left_ear'], ['nose', 'right_eye'], ['right_eye', 'right_ear'],
-                ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
-                ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'],
-                ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip'], ['left_hip', 'left_knee'],
-                ['left_knee', 'left_ankle'], ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
-            ];
-
-            connections.forEach(([startName, endName]) => {
-                const start = keypoints.find(k => k.name === startName);
-                const end = keypoints.find(k => k.name === endName);
-
-                if (start && end && start.score > minConfidence && end.score > minConfidence) {
+            // Punkte
+            keypoints.forEach(kp => {
+                if (kp.score > minConf) {
                     ctx.beginPath();
-                    ctx.moveTo(start.x, start.y);
-                    ctx.lineTo(end.x, end.y);
-                    ctx.lineWidth = 2;
-                    ctx.strokeStyle = 'lime';
+                    ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#00ccff';
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
                     ctx.stroke();
                 }
             });
         }
 
+        // --- Zeichnen: Objekte ---
+        function drawObjects(predictions) {
+            predictions.forEach(prediction => {
+                const [x, y, width, height] = prediction.bbox;
+                const text = `${prediction.class} ${Math.round(prediction.score * 100)}%`;
+
+                // Box
+                ctx.strokeStyle = '#00ccff';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(x, y, width, height);
+
+                // Label Hintergrund
+                ctx.fillStyle = 'rgba(0, 204, 255, 0.8)';
+                const textWidth = ctx.measureText(text).width;
+                ctx.fillRect(x, y - 25, textWidth + 10, 25);
+
+                // Text
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 16px Courier New';
+                ctx.fillText(text, x + 5, y - 7);
+            });
+        }
+
+        // Start
         main();
+
     </script>
 </body>
 </html>
