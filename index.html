@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pixel 9a Pose Detection</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        #video { display: none; } /* Wir rendern das Video manuell auf den Canvas */
+        #status {
+            position: absolute; bottom: 20px; left: 20px; color: lime; font-family: monospace;
+            background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+    <video id="video" playsinline muted></video>
+    <canvas id="output"></canvas>
+    <div id="status">Lade Modell...</div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+
+    <script>
+        // PWA Service Worker registrieren
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js');
+        }
+
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('output');
+        const ctx = canvas.getContext('2d');
+        const status = document.getElementById('status');
+        let detector;
+        let animationId;
+
+        // Setup Kamera
+        async function setupCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: 'environment', width: 640, height: 480 },
+                audio: false
+            });
+            video.srcObject = stream;
+            return new Promise((resolve) => {
+                video.onloadedmetadata = () => {
+                    video.play();
+                    resolve(video);
+                };
+            });
+        }
+
+        // Hauptfunktion
+        async function main() {
+            await tf.setBackend('webgl'); // GPU Beschleunigung auf dem Pixel nutzen
+            
+            // MoveNet Modell laden (Thunder = Hohe Genauigkeit, Lightning = Hohe Speed)
+            const model = poseDetection.SupportedModels.MoveNet;
+            const detectorConfig = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_THUNDER };
+            detector = await poseDetection.createDetector(model, detectorConfig);
+
+            status.innerText = "Kamera starten...";
+            await setupCamera();
+            
+            // Canvas Größe anpassen
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            status.innerText = "Inference läuft: MoveNet Thunder";
+
+            render();
+        }
+
+        // Render Loop
+        async function render() {
+            if (video.readyState === 4) {
+                // 1. Pose schätzen
+                const poses = await detector.estimatePoses(video);
+
+                // 2. Bild zeichnen
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // 3. Keypoints zeichnen
+                if (poses && poses.length > 0) {
+                    drawSkeleton(poses[0].keypoints);
+                }
+            }
+            animationId = requestAnimationFrame(render);
+        }
+
+        // Hilfsfunktion zum Zeichnen
+        function drawSkeleton(keypoints) {
+            const minConfidence = 0.3;
+            
+            // Punkte zeichnen
+            keypoints.forEach(kp => {
+                if(kp.score > minConfidence) {
+                    ctx.beginPath();
+                    ctx.arc(kp.x, kp.y, 5, 0, 2 * Math.PI);
+                    ctx.fillStyle = 'red';
+                    ctx.fill();
+                }
+            });
+
+            // Verbindungen definieren (vereinfacht)
+            const connections = [
+                ['nose', 'left_eye'], ['left_eye', 'left_ear'], ['nose', 'right_eye'], ['right_eye', 'right_ear'],
+                ['left_shoulder', 'right_shoulder'], ['left_shoulder', 'left_elbow'], ['left_elbow', 'left_wrist'],
+                ['right_shoulder', 'right_elbow'], ['right_elbow', 'right_wrist'], ['left_shoulder', 'left_hip'],
+                ['right_shoulder', 'right_hip'], ['left_hip', 'right_hip'], ['left_hip', 'left_knee'],
+                ['left_knee', 'left_ankle'], ['right_hip', 'right_knee'], ['right_knee', 'right_ankle']
+            ];
+
+            connections.forEach(([startName, endName]) => {
+                const start = keypoints.find(k => k.name === startName);
+                const end = keypoints.find(k => k.name === endName);
+
+                if (start && end && start.score > minConfidence && end.score > minConfidence) {
+                    ctx.beginPath();
+                    ctx.moveTo(start.x, start.y);
+                    ctx.lineTo(end.x, end.y);
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = 'lime';
+                    ctx.stroke();
+                }
+            });
+        }
+
+        main();
+    </script>
+</body>
+</html>
