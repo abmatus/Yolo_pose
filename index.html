@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>AI Vision Cam</title>
+    <title>AI Vision</title>
     <link rel="manifest" href="manifest.json">
     
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
@@ -14,164 +14,206 @@
 
     <style>
         :root {
-            --primary: #00ff88; /* Cyber Green */
-            --secondary: #00ccff; /* Cyber Blue */
-            --bg-glass: rgba(10, 10, 10, 0.75);
+            --accent: #32D74B; /* iOS Green */
+            --glass: rgba(28, 28, 30, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.1);
             --text: #ffffff;
+            --safe-top: env(safe-area-inset-top, 20px);
+            --safe-bottom: env(safe-area-inset-bottom, 20px);
         }
 
-        body { margin: 0; background: #000; overflow: hidden; height: 100vh; font-family: 'Courier New', monospace; }
-        
-        /* Video & Canvas Layer */
-        #cam-wrapper { position: relative; width: 100%; height: 100%; }
-        #video { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
-        #output { position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: 2; }
+        body { 
+            margin: 0; background: #000; overflow: hidden; height: 100vh; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
 
-        /* UI Overlay */
+        /* --- Layers --- */
+        #view-container { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; background: #000;}
+        
+        video { position: absolute; height: 100%; width: 100%; object-fit: cover; }
+        canvas { position: absolute; height: 100%; width: 100%; object-fit: cover; }
+
+        /* Flash Effekt für Snapshot */
+        #flash {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: white; opacity: 0; pointer-events: none; z-index: 50;
+            transition: opacity 0.1s;
+        }
+
+        /* --- UI Overlay --- */
         #ui-layer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 20;
             display: flex; flex-direction: column; justify-content: space-between;
             pointer-events: none;
         }
 
-        .bar {
-            padding: 15px; pointer-events: auto; display: flex; align-items: center;
-            background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%);
-        }
-        .bottom-bar {
-            background: linear-gradient(0deg, rgba(0,0,0,0.9) 0%, transparent 100%);
-            justify-content: center; gap: 20px; padding-bottom: 30px;
+        /* --- Header / Segmented Control --- */
+        .header {
+            padding-top: calc(var(--safe-top) + 10px);
+            display: flex; justify-content: center;
+            pointer-events: auto;
         }
 
-        /* Controls */
-        #fps-display { color: var(--primary); font-weight: bold; font-size: 14px; background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px; border: 1px solid var(--primary); }
-        
-        .btn {
-            background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
-            color: var(--text); padding: 10px 16px; border-radius: 8px; cursor: pointer;
-            backdrop-filter: blur(10px); transition: 0.2s; font-family: inherit; font-weight: bold;
-        }
-        .btn:active { background: var(--primary); color: #000; transform: scale(0.95); box-shadow: 0 0 15px var(--primary); }
-        
-        .round-btn { border-radius: 50%; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-
-        /* Select Styling */
-        .model-selector {
-            margin-left: auto; background: rgba(0,0,0,0.6); color: var(--text);
-            border: 1px solid var(--secondary); padding: 8px; border-radius: 6px;
-            outline: none; font-family: inherit;
+        .segmented-control {
+            background: var(--glass);
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            padding: 4px; border-radius: 100px;
+            display: flex; gap: 5px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         }
 
-        /* Loading Screen */
-        #loader {
+        .seg-btn {
+            background: transparent; border: none; color: rgba(255,255,255,0.6);
+            padding: 8px 20px; border-radius: 100px; font-weight: 600; font-size: 13px;
+            cursor: pointer; transition: 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        .seg-btn.active {
+            background: rgba(255,255,255,0.15); color: #fff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        /* --- Footer Controls --- */
+        .footer {
+            padding-bottom: calc(var(--safe-bottom) + 30px);
+            display: flex; justify-content: center; align-items: center; gap: 40px;
+            pointer-events: auto;
+            background: linear-gradient(to top, rgba(0,0,0,0.8), transparent);
+        }
+
+        .control-btn {
+            width: 45px; height: 45px; border-radius: 50%;
+            background: var(--glass); backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            color: white; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: transform 0.1s;
+        }
+        .control-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.2); }
+        .control-btn svg { width: 20px; height: 20px; fill: currentColor; }
+
+        /* Shutter Button */
+        #shutter-btn {
+            width: 72px; height: 72px; border-radius: 50%;
+            background: transparent; border: 4px solid white;
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+        }
+        #shutter-inner {
+            width: 60px; height: 60px; border-radius: 50%; background: white;
+            transition: 0.2s;
+        }
+        #shutter-btn:active #shutter-inner { transform: scale(0.85); opacity: 0.8; }
+
+        /* FPS Pill */
+        #fps-pill {
+            position: absolute; top: calc(var(--safe-top) + 20px); right: 20px;
+            background: rgba(0,0,0,0.5); color: rgba(255,255,255,0.8);
+            padding: 4px 8px; border-radius: 6px; font-size: 10px; font-family: monospace;
+            pointer-events: none; backdrop-filter: blur(5px);
+        }
+
+        /* --- Loading Screen --- */
+        #splash {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; z-index: 50; display: flex; flex-direction: column;
-            justify-content: center; align-items: center; color: var(--primary); transition: opacity 0.5s;
+            background: #000; z-index: 100; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; transition: opacity 0.5s;
         }
-        .scanner {
-            width: 100%; height: 4px; background: var(--primary);
-            animation: scan 2s infinite ease-in-out; box-shadow: 0 0 20px var(--primary);
+        .loader-ring {
+            width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid var(--accent); border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 20px;
         }
-        @keyframes scan { 0%, 100% { width: 0; opacity: 0; } 50% { width: 80%; opacity: 1; } }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .splash-text { font-size: 14px; color: #666; font-weight: 500; letter-spacing: 0.5px; }
+
     </style>
 </head>
 <body>
 
-    <div id="loader">
-        <div style="font-size: 24px; margin-bottom: 20px;">SYSTEM INITIALIZING</div>
-        <div class="scanner"></div>
-        <p id="loader-text" style="margin-top: 20px; color: #666;">Lade neuronale Netze...</p>
+    <div id="splash">
+        <div class="loader-ring"></div>
+        <div class="splash-text">INITIALIZING AI CORE</div>
     </div>
 
-    <div id="cam-wrapper">
+    <div id="view-container">
         <video id="video" playsinline muted autoplay></video>
         <canvas id="output"></canvas>
+        <div id="flash"></div>
     </div>
 
     <div id="ui-layer">
-        <div class="bar top-bar">
-            <div id="fps-display">FPS: 0</div>
-            <select id="model-select" class="model-selector">
-                <option value="pose">🟢 Körper (Pose)</option>
-                <option value="object">🔵 Objekte (Coco)</option>
-            </select>
+        
+        <div class="header">
+            <div class="segmented-control">
+                <button class="seg-btn active" data-model="pose">Pose</button>
+                <button class="seg-btn" data-model="object">Object</button>
+            </div>
         </div>
-        <div class="bar bottom-bar">
-            <button class="btn round-btn" id="cam-switch">🔄</button>
-            <button class="btn" id="info-btn">AI CAM v1.0</button>
+
+        <div id="fps-pill">FPS: 0</div>
+
+        <div class="footer">
+            <div class="control-btn" id="btn-switch">
+                <svg viewBox="0 0 24 24"><path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-5 11.5V13H9v2.5L5.5 12 9 8.5V11h6V8.5l3.5 3.5-3.5 3.5z"/></svg>
+            </div>
+
+            <div id="shutter-btn">
+                <div id="shutter-inner"></div>
+            </div>
+
+            <div class="control-btn" id="btn-info" style="opacity:0.5;"> <svg viewBox="0 0 24 24"><path d="M11 17h2v-6h-2v6zm1-15C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zM11 9h2V7h-2v2z"/></svg>
+            </div>
         </div>
     </div>
 
     <script>
+        // PWA Setup
         if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js');
 
+        // Elements
         const video = document.getElementById('video');
         const canvas = document.getElementById('output');
         const ctx = canvas.getContext('2d');
-        const loader = document.getElementById('loader');
-        const loaderText = document.getElementById('loader-text');
-        const fpsDisplay = document.getElementById('fps-display');
-        const modelSelect = document.getElementById('model-select');
-        const camSwitchBtn = document.getElementById('cam-switch');
+        const splash = document.getElementById('splash');
+        const fpsPill = document.getElementById('fps-pill');
+        const flash = document.getElementById('flash');
+        
+        // Buttons
+        const segBtns = document.querySelectorAll('.seg-btn');
+        const switchBtn = document.getElementById('btn-switch');
+        const shutterBtn = document.getElementById('shutter-btn');
 
+        // State
         let detector;
-        let currentModel = 'pose'; // 'pose' oder 'object'
-        let lastFrameTime = 0;
+        let currentModel = 'pose';
+        let facingMode = 'environment';
         let currentStream = null;
-        let isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        let facingMode = 'environment'; // Start mit Rückkamera
+        let lastFrameTime = 0;
+        let frameCount = 0;
 
-        // --- Initialisierung ---
-        async function main() {
+        // --- Core Logic ---
+
+        async function init() {
             await tf.setBackend('webgl');
             await setupCamera();
             await loadModel('pose');
             
-            loader.style.opacity = 0;
-            setTimeout(() => loader.style.display = 'none', 500);
-            
+            // UI Ready
+            splash.style.opacity = '0';
+            setTimeout(() => splash.style.display = 'none', 500);
             render();
         }
 
-        // --- Modell Logik ---
-        async function loadModel(type) {
-            loader.style.display = 'flex';
-            loader.style.opacity = 1;
-            loaderText.innerText = type === 'pose' ? "Lade MoveNet..." : "Lade Coco-SSD...";
-            
-            // Kurze Pause für UI Update
-            await new Promise(r => setTimeout(r, 100));
-
-            if (detector) {
-                if (currentModel === 'pose') detector.dispose ? detector.dispose() : null;
-                // CocoSSD hat keine explizite dispose methode, garbage collector regelt das
-            }
-
-            currentModel = type;
-
-            if (type === 'pose') {
-                const model = poseDetection.SupportedModels.MoveNet;
-                // Lightning ist schneller für Mobile, Thunder genauer. Hier Lightning für FPS.
-                const config = { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING };
-                detector = await poseDetection.createDetector(model, config);
-            } else {
-                detector = await cocoSsd.load();
-            }
-
-            loader.style.opacity = 0;
-            setTimeout(() => loader.style.display = 'none', 500);
-        }
-
-        // --- Kamera Logik ---
         async function setupCamera() {
-            if (currentStream) {
-                currentStream.getTracks().forEach(track => track.stop());
-            }
-
+            if (currentStream) currentStream.getTracks().forEach(t => t.stop());
+            
             const constraints = {
                 video: {
                     facingMode: facingMode,
-                    width: { ideal: 1280 },
+                    width: { ideal: 1280 }, // HD Auflösung
                     height: { ideal: 720 }
                 },
                 audio: false
@@ -186,57 +228,77 @@
                     video.onloadedmetadata = () => {
                         canvas.width = video.videoWidth;
                         canvas.height = video.videoHeight;
-                        resolve(video);
+                        resolve();
                     };
                 });
-            } catch (e) {
-                alert("Kamera Zugriff verweigert oder Fehler: " + e.message);
+            } catch (err) {
+                console.error(err);
+                alert('Kamera konnte nicht gestartet werden.');
             }
         }
 
-        // --- Event Listeners ---
-        modelSelect.addEventListener('change', (e) => loadModel(e.target.value));
-        
-        camSwitchBtn.addEventListener('click', async () => {
-            facingMode = facingMode === 'user' ? 'environment' : 'user';
-            await setupCamera();
-        });
+        async function loadModel(type) {
+            currentModel = type;
+            
+            // Haptik Feedback
+            if(navigator.vibrate) navigator.vibrate(20);
 
-        // --- Render Loop ---
+            if(detector) {
+                if(detector.dispose) detector.dispose();
+                detector = null;
+            }
+
+            if (type === 'pose') {
+                const model = poseDetection.SupportedModels.MoveNet;
+                detector = await poseDetection.createDetector(model, {
+                    modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
+                });
+            } else {
+                detector = await cocoSsd.load();
+            }
+        }
+
+        // --- Rendering ---
+
         async function render() {
-            // FPS Berechnung
             const now = performance.now();
-            const fps = 1000 / (now - lastFrameTime);
+            if(now - lastFrameTime >= 1000) {
+               // Simple FPS counter
+               // fpsPill.innerText = `FPS: ${Math.round(1000 / (now - lastFrameTime))}`; 
+            }
             lastFrameTime = now;
-            if (frameCount++ % 10 === 0) fpsDisplay.innerText = `FPS: ${Math.round(fps)}`;
 
             if (video.readyState === 4 && detector) {
-                // Canvas clearen und Video zeichnen
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                // Inference je nach Modell
-                if (currentModel === 'pose') {
-                    const poses = await detector.estimatePoses(video);
-                    if (poses.length > 0) drawPose(poses[0].keypoints);
-                } else {
-                    const predictions = await detector.detect(video);
-                    drawObjects(predictions);
-                }
+                ctx.clearRect(0, 0, canvas.width, canvas.height); // Nur AI zeichnen, Video ist Hintergrund
+                
+                // Wir zeichnen das Video NICHT auf den Canvas, um Performance zu sparen.
+                // Das Video Element liegt dahinter. Wir zeichnen nur die Overlays.
+                
+                try {
+                    if (currentModel === 'pose') {
+                        const poses = await detector.estimatePoses(video);
+                        if (poses.length > 0) drawPose(poses[0].keypoints);
+                    } else {
+                        const predictions = await detector.detect(video);
+                        drawObjects(predictions);
+                    }
+                } catch(e) { console.log(e); }
             }
-
             requestAnimationFrame(render);
         }
-        let frameCount = 0;
 
-        // --- Zeichnen: Pose ---
+        // --- Drawing Helpers (Modern Style) ---
+
         function drawPose(keypoints) {
             const minConf = 0.3;
-            
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+
             // Verbindungen
             const connections = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = '#00ff88';
-
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; // Weisse Linien
+            
             connections.forEach(([i, j]) => {
                 const kp1 = keypoints[i];
                 const kp2 = keypoints[j];
@@ -248,44 +310,103 @@
                 }
             });
 
-            // Punkte
+            // Punkte (Joints)
             keypoints.forEach(kp => {
                 if (kp.score > minConf) {
                     ctx.beginPath();
                     ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI);
-                    ctx.fillStyle = '#00ccff';
+                    ctx.fillStyle = '#32D74B'; // iOS Green
                     ctx.fill();
+                    ctx.lineWidth = 2;
                     ctx.strokeStyle = '#fff';
                     ctx.stroke();
                 }
             });
         }
 
-        // --- Zeichnen: Objekte ---
         function drawObjects(predictions) {
-            predictions.forEach(prediction => {
-                const [x, y, width, height] = prediction.bbox;
-                const text = `${prediction.class} ${Math.round(prediction.score * 100)}%`;
-
-                // Box
-                ctx.strokeStyle = '#00ccff';
+            predictions.forEach(p => {
+                const [x, y, w, h] = p.bbox;
+                const conf = Math.round(p.score * 100);
+                
+                // Moderne Bounding Box: Runde Ecken, dünne Linie
+                ctx.strokeStyle = 'rgba(50, 215, 75, 0.8)';
                 ctx.lineWidth = 3;
-                ctx.strokeRect(x, y, width, height);
+                roundRect(ctx, x, y, w, h, 10); // Custom function for rounded rects
+                ctx.stroke();
 
-                // Label Hintergrund
-                ctx.fillStyle = 'rgba(0, 204, 255, 0.8)';
+                // Label Pill
+                ctx.fillStyle = 'rgba(50, 215, 75, 1)';
+                const text = `${p.class} ${conf}%`;
                 const textWidth = ctx.measureText(text).width;
-                ctx.fillRect(x, y - 25, textWidth + 10, 25);
+                
+                ctx.beginPath();
+                ctx.roundRect(x, y - 26, textWidth + 16, 22, 6);
+                ctx.fill();
 
-                // Text
                 ctx.fillStyle = '#000';
-                ctx.font = 'bold 16px Courier New';
-                ctx.fillText(text, x + 5, y - 7);
+                ctx.font = '600 12px -apple-system, sans-serif';
+                ctx.fillText(text, x + 8, y - 10);
             });
         }
 
-        // Start
-        main();
+        function roundRect(ctx, x, y, w, h, r) {
+            if (w < 2 * r) r = w / 2;
+            if (h < 2 * r) r = h / 2;
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.arcTo(x + w, y, x + w, y + h, r);
+            ctx.arcTo(x + w, y + h, x, y + h, r);
+            ctx.arcTo(x, y + h, x, y, r);
+            ctx.arcTo(x, y, x + w, y, r);
+            ctx.closePath();
+        }
+
+        // --- Interactions ---
+
+        // Model Switcher
+        segBtns.forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                segBtns.forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                loadModel(e.target.dataset.model);
+            });
+        });
+
+        // Switch Camera
+        switchBtn.addEventListener('click', () => {
+            if(navigator.vibrate) navigator.vibrate(10);
+            facingMode = facingMode === 'environment' ? 'user' : 'environment';
+            setupCamera();
+        });
+
+        // Snapshot
+        shutterBtn.addEventListener('click', () => {
+            if(navigator.vibrate) navigator.vibrate(50);
+            
+            // Flash Animation
+            flash.style.opacity = '0.8';
+            setTimeout(() => flash.style.opacity = '0', 100);
+
+            // Screenshot Logic
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // 1. Video Frame zeichnen
+            tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+            // 2. Overlay zeichnen
+            tempCtx.drawImage(canvas, 0, 0);
+
+            // 3. Download
+            const link = document.createElement('a');
+            link.download = `ai-shot-${Date.now()}.png`;
+            link.href = tempCanvas.toDataURL('image/png');
+            link.click();
+        });
+
+        init();
 
     </script>
 </body>
