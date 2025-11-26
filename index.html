@@ -146,6 +146,7 @@
             font-size: 12px; font-weight: 700; color: var(--accent);
             background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 4px;
             font-family: monospace; letter-spacing: 1px;
+            min-width: 80px; text-align: center; /* Fixierte Breite für FPS */
         }
 
         /* Bottom Controls */
@@ -247,16 +248,15 @@ yolo export model=best.pt format=tfjs</div>
                 
                 <div class="info-title" style="margin-top:20px; font-size:12px;">Schritt 2: Hochladen</div>
                 <div class="info-text">
-                    Der Export erstellt einen Ordner mit einer <code>model.json</code> und mehreren <code>.bin</code> Dateien.
-                    <br><br>
-                    <strong>WICHTIG:</strong> Wenn du unten auf "Dateien auswählen" klickst, musst du <strong>ALLE</strong> Dateien aus diesem Ordner gleichzeitig markieren und öffnen.
+                    Lade den gesamten Ordner-Inhalt hoch. <br>
+                    <strong>Wichtig:</strong> Wähle auch die <code>metadata.yaml</code> aus, um deine Klassennamen zu importieren!
                 </div>
 
                 <button class="action-btn secondary" id="btn-upload">
                     <svg style="width:20px; fill:white;" viewBox="0 0 24 24"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>
-                    DATEIEN AUSWÄHLEN (JSON + BIN)
+                    DATEIEN AUSWÄHLEN (ALLE)
                 </button>
-                <input type="file" id="model-upload" multiple accept=".json,.bin">
+                <input type="file" id="model-upload" multiple>
                 <div id="upload-status" style="margin-top:10px; font-size:12px; color:var(--accent);"></div>
             </div>
 
@@ -355,8 +355,9 @@ yolo export model=best.pt format=tfjs</div>
         // Optimization: Status Flags & Storage
         let isDetecting = false; 
         let lastResults = null; 
+        let customLabels = []; // Für eigene Klassennamen
 
-        // YOLOv8n COCO Class Labels (Standard)
+        // YOLOv8n COCO Class Labels (Standard Fallback)
         const yoloLabels = [
             'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 
             'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 
@@ -395,11 +396,27 @@ yolo export model=best.pt format=tfjs</div>
             }
         }
 
-        // --- Upload Logic (Robust) ---
+        // --- Upload Logic & Metadata Parsing ---
         btnUpload.addEventListener('click', () => inputUpload.click());
 
         inputUpload.addEventListener('change', async (event) => {
             const allFiles = Array.from(event.target.files);
+            
+            // 1. Suche nach metadata.yaml für Klassennamen
+            const yamlFile = allFiles.find(f => f.name.toLowerCase().endsWith('.yaml'));
+            if (yamlFile) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    parseYamlNames(text);
+                };
+                reader.readAsText(yamlFile);
+            } else {
+                console.log("Keine metadata.yaml gefunden, nutze Standard-Nummern/Labels.");
+                customLabels = []; // Reset
+            }
+
+            // 2. Filter für TF.js (nur json & bin)
             const modelFiles = allFiles.filter(f => f.name.toLowerCase().endsWith('.json') || f.name.toLowerCase().endsWith('.bin'));
 
             const jsonFile = modelFiles.find(f => f.name.toLowerCase().endsWith('.json'));
@@ -434,11 +451,53 @@ yolo export model=best.pt format=tfjs</div>
             }
         });
 
+        // Hilfsfunktion: Einfacher YAML Parser für "names:"
+        function parseYamlNames(text) {
+            try {
+                // Suche nach dem Block "names:"
+                const lines = text.split('\n');
+                let inNamesBlock = false;
+                customLabels = [];
+                
+                for(let line of lines) {
+                    const trimmed = line.trim();
+                    if (trimmed.startsWith('names:')) {
+                        inNamesBlock = true;
+                        // Check inline format: names: [a, b, c]
+                        if (trimmed.includes('[')) {
+                            const content = trimmed.substring(trimmed.indexOf('[')+1, trimmed.lastIndexOf(']'));
+                            customLabels = content.split(',').map(s => s.trim().replace(/['"]/g, ''));
+                            inNamesBlock = false; 
+                        }
+                        continue;
+                    }
+                    
+                    if (inNamesBlock) {
+                        // Erwarte Format: "0: person" oder "- person"
+                        if (trimmed.includes(':')) {
+                            const parts = trimmed.split(':');
+                            const val = parts[1].trim().replace(/['"]/g, '');
+                            customLabels.push(val);
+                        } else if (trimmed.startsWith('-')) {
+                             const val = trimmed.substring(1).trim().replace(/['"]/g, '');
+                             customLabels.push(val);
+                        } else if (trimmed === '' || !trimmed.match(/^\d/) && !trimmed.startsWith('-')) {
+                            // Block zu Ende wenn keine Zahl/Strich mehr am Anfang (sehr simpel)
+                            if(customLabels.length > 0) inNamesBlock = false;
+                        }
+                    }
+                }
+                console.log("Geladene Klassen:", customLabels);
+                if(customLabels.length > 0) uploadStatus.innerText += ` (${customLabels.length} Klassen erkannt)`;
+            } catch(e) {
+                console.warn("Konnte YAML nicht parsen:", e);
+            }
+        }
+
         // --- Model Loading ---
         async function loadModel(type) {
             if (type === 'custom' && !customModel) return;
             
-            // WICHTIG: Detector sofort leeren, um Race-Conditions zu verhindern!
             detector = null; 
             currentModel = type;
             fpsBadge.innerText = "LOADING...";
@@ -471,7 +530,6 @@ yolo export model=best.pt format=tfjs</div>
 
         // --- Optimized Inference Loop ---
         async function runPrediction() {
-            // Wenn detector NULL ist, brechen wir ab (verhindert den "is not a function" Fehler)
             if (!detector || isDetecting || video.readyState !== 4) return;
             
             isDetecting = true;
@@ -494,14 +552,23 @@ yolo export model=best.pt format=tfjs</div>
             isDetecting = false;
         }
 
-        // --- Render Loop (60FPS) ---
+        // --- Render Loop (With FPS Calculation) ---
         function renderLoop() {
             const now = performance.now();
-            if(now - lastFrameTime > 500) { 
-                 fpsBadge.innerText = `ACTIVE: ${currentModel.toUpperCase()}`;
-                 fpsBadge.style.color = 'var(--accent)';
-            }
+            const delta = now - lastFrameTime;
             lastFrameTime = now;
+
+            // FPS Anzeige (nur alle 500ms aktualisieren für Lesbarkeit)
+            if (!window.fpsTimer) window.fpsTimer = 0;
+            window.fpsTimer += delta;
+            
+            if (window.fpsTimer > 500) {
+                const fps = Math.round(1000 / delta);
+                // Badge Update: Zeigt "FPS: 30 | POSE"
+                fpsBadge.innerText = `FPS: ${fps} | ${currentModel.toUpperCase()}`;
+                fpsBadge.style.color = (fps < 15) ? 'red' : 'var(--accent)';
+                window.fpsTimer = 0;
+            }
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -654,9 +721,16 @@ yolo export model=best.pt format=tfjs</div>
                 const w = x2 - x1;
                 const h = y2 - y1;
                 
-                // HIER: Namen statt Nummern verwenden!
                 const classIdx = results.classes[i];
-                const clsName = yoloLabels[classIdx] ? yoloLabels[classIdx] : `Class ${classIdx}`;
+                let clsName = `Class ${classIdx}`;
+                
+                // Priorität: 1. Custom Labels (aus yaml), 2. Standard YOLO Labels
+                if (customLabels.length > 0 && customLabels[classIdx]) {
+                    clsName = customLabels[classIdx];
+                } else if (yoloLabels[classIdx]) {
+                    clsName = yoloLabels[classIdx];
+                }
+
                 const score = results.scores[i];
                 
                 drawBox(x1, y1, w, h, clsName, score, '#FF0055');
