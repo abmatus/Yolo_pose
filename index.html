@@ -384,22 +384,41 @@ yolo export model=best.pt format=tfjs</div>
             }
         }
 
-        // --- Upload Logic ---
+        // --- Upload Logic (Verbessert) ---
         btnUpload.addEventListener('click', () => inputUpload.click());
 
         inputUpload.addEventListener('change', async (event) => {
-            const files = event.target.files;
-            if (files.length < 2) {
-                alert("Bitte wähle model.json UND die .bin Datei(en) aus.");
+            // 1. Umwandeln in echtes Array (behebt "slice" Fehler)
+            const allFiles = Array.from(event.target.files);
+            
+            // 2. Filtern: Wir wollen NUR .json und .bin Dateien (ignoriert .yaml, .DS_Store etc.)
+            const modelFiles = allFiles.filter(f => 
+                f.name.toLowerCase().endsWith('.json') || 
+                f.name.toLowerCase().endsWith('.bin')
+            );
+
+            // 3. Validierung
+            const jsonFile = modelFiles.find(f => f.name.toLowerCase().endsWith('.json'));
+            const binFiles = modelFiles.filter(f => f.name.toLowerCase().endsWith('.bin'));
+
+            if (!jsonFile) {
+                alert("Fehler: Keine .json Datei gefunden!");
+                return;
+            }
+            
+            if (binFiles.length === 0) {
+                alert("Fehler: Keine .bin Gewichte gefunden (shards)!");
                 return;
             }
 
-            uploadStatus.innerText = "Lade Custom YOLO...";
+            uploadStatus.innerText = `Lade ${modelFiles.length} Dateien...`;
+            uploadStatus.style.color = "var(--accent)";
             
             try {
-                customModel = await tf.loadGraphModel(tf.io.browserFiles(files));
+                // Hier übergeben wir das gesäuberte Array an TF.js
+                customModel = await tf.loadGraphModel(tf.io.browserFiles(modelFiles));
                 
-                // Warmup
+                // Warmup (Model einmal leer laufen lassen)
                 const dummy = tf.zeros([1, 640, 640, 3]);
                 customModel.predict(dummy).dispose();
                 dummy.dispose();
@@ -407,6 +426,7 @@ yolo export model=best.pt format=tfjs</div>
                 uploadStatus.innerText = "YOLO Modell bereit!";
                 uploadStatus.style.color = "#00ff00";
                 
+                // UI Wechsel
                 modeCustom.style.display = 'block';
                 modeCustom.click();
                 setTimeout(() => document.getElementById('close-info').click(), 800);
@@ -415,7 +435,7 @@ yolo export model=best.pt format=tfjs</div>
                 console.error(err);
                 uploadStatus.innerText = "Fehler: " + err.message;
                 uploadStatus.style.color = "red";
-                alert("Ladefehler. Sicher dass es ein TF.js YOLO Export ist?");
+                alert("Modell konnte nicht geladen werden. Prüfe die Konsole für Details.");
             }
         });
 
