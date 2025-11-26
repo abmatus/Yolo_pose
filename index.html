@@ -9,10 +9,7 @@
     <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
     <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
     
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-cpu"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
@@ -357,7 +354,7 @@ yolo export model=best.pt format=tfjs</div>
 
         // Optimization: Status Flags & Storage
         let isDetecting = false; 
-        let lastResults = null; // Speichert das letzte Ergebnis zum Zeichnen
+        let lastResults = null; 
 
         async function init() {
             await tf.setBackend('webgl');
@@ -384,14 +381,14 @@ yolo export model=best.pt format=tfjs</div>
             }
         }
 
-        // --- Upload Logic (Verbessert) ---
+        // --- Upload Logic (Robust) ---
         btnUpload.addEventListener('click', () => inputUpload.click());
 
         inputUpload.addEventListener('change', async (event) => {
-            // 1. Umwandeln in echtes Array (behebt "slice" Fehler)
+            // 1. Array umwandeln
             const allFiles = Array.from(event.target.files);
             
-            // 2. Filtern: Wir wollen NUR .json und .bin Dateien (ignoriert .yaml, .DS_Store etc.)
+            // 2. Filtern (.json und .bin)
             const modelFiles = allFiles.filter(f => 
                 f.name.toLowerCase().endsWith('.json') || 
                 f.name.toLowerCase().endsWith('.bin')
@@ -401,24 +398,16 @@ yolo export model=best.pt format=tfjs</div>
             const jsonFile = modelFiles.find(f => f.name.toLowerCase().endsWith('.json'));
             const binFiles = modelFiles.filter(f => f.name.toLowerCase().endsWith('.bin'));
 
-            if (!jsonFile) {
-                alert("Fehler: Keine .json Datei gefunden!");
-                return;
-            }
-            
-            if (binFiles.length === 0) {
-                alert("Fehler: Keine .bin Gewichte gefunden (shards)!");
-                return;
-            }
+            if (!jsonFile) { alert("Fehler: Keine .json Datei gefunden!"); return; }
+            if (binFiles.length === 0) { alert("Fehler: Keine .bin Gewichte gefunden!"); return; }
 
             uploadStatus.innerText = `Lade ${modelFiles.length} Dateien...`;
             uploadStatus.style.color = "var(--accent)";
             
             try {
-                // Hier übergeben wir das gesäuberte Array an TF.js
                 customModel = await tf.loadGraphModel(tf.io.browserFiles(modelFiles));
                 
-                // Warmup (Model einmal leer laufen lassen)
+                // Warmup
                 const dummy = tf.zeros([1, 640, 640, 3]);
                 customModel.predict(dummy).dispose();
                 dummy.dispose();
@@ -426,7 +415,6 @@ yolo export model=best.pt format=tfjs</div>
                 uploadStatus.innerText = "YOLO Modell bereit!";
                 uploadStatus.style.color = "#00ff00";
                 
-                // UI Wechsel
                 modeCustom.style.display = 'block';
                 modeCustom.click();
                 setTimeout(() => document.getElementById('close-info').click(), 800);
@@ -435,23 +423,18 @@ yolo export model=best.pt format=tfjs</div>
                 console.error(err);
                 uploadStatus.innerText = "Fehler: " + err.message;
                 uploadStatus.style.color = "red";
-                alert("Modell konnte nicht geladen werden. Prüfe die Konsole für Details.");
+                alert("Modellfehler. Prüfe die Konsole.");
             }
         });
 
         // --- Model Loading ---
         async function loadModel(type) {
-            // Check if we are switching to custom without a model
             if (type === 'custom' && !customModel) return;
             
             currentModel = type;
             fpsBadge.innerText = "LOADING...";
-            lastResults = null; // Clear old drawings
-            
-            // Dispose old if needed (some models need manual disposal)
-            // if (detector && detector.dispose) detector.dispose(); 
+            lastResults = null; 
 
-            // Small delay to let UI update
             await new Promise(r => setTimeout(r, 50)); 
 
             try {
@@ -469,7 +452,6 @@ yolo export model=best.pt format=tfjs</div>
                     setTimeout(() => loader.style.display = 'none', 500);
                 }
                 
-                // Start Loop
                 requestAnimationFrame(renderLoop);
 
             } catch (err) {
@@ -502,7 +484,7 @@ yolo export model=best.pt format=tfjs</div>
             isDetecting = false;
         }
 
-        // --- Render Loop (Runs at 60FPS) ---
+        // --- Render Loop (60FPS) ---
         function renderLoop() {
             const now = performance.now();
             if(now - lastFrameTime > 500) { 
@@ -511,10 +493,8 @@ yolo export model=best.pt format=tfjs</div>
             }
             lastFrameTime = now;
 
-            // 1. Clear & Prep
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // 2. Draw Last Known Results (Non-blocking!)
             if (lastResults) {
                 if (lastResults.type === 'pose' && lastResults.data.length > 0) {
                     drawPose(lastResults.data[0].keypoints);
@@ -525,18 +505,15 @@ yolo export model=best.pt format=tfjs</div>
                 }
             }
 
-            // 3. Trigger New Prediction (Async)
             runPrediction();
-
-            // 4. Repeat
             requestAnimationFrame(renderLoop);
         }
-
 
         // --- YOLO Post-Processing ---
         async function runYoloCustom(model, videoEl) {
             const tfImg = tf.tidy(() => {
                 const img = tf.browser.fromPixels(videoEl);
+                // Mit tf.min.js funktioniert .div() wieder!
                 return tf.image.resizeBilinear(img, [640, 640]).div(255.0).expandDims(0);
             });
 
@@ -545,7 +522,6 @@ yolo export model=best.pt format=tfjs</div>
             const predictions = await tf.tidy(() => {
                 const output = outputTensor.squeeze(); 
                 const [features, anchors] = output.shape;
-                
                 const transposed = output.transpose([1, 0]); 
                 
                 const boxes = transposed.slice([0, 0], [anchors, 4]); 
@@ -565,7 +541,6 @@ yolo export model=best.pt format=tfjs</div>
                 const y2 = y.add(h.div(2));
                 
                 const nmsBoxes = tf.concat([y1, x1, y2, x2], 1);
-                
                 return { nmsBoxes, maxScores, classes };
             });
 
@@ -595,7 +570,7 @@ yolo export model=best.pt format=tfjs</div>
             return resultData;
         }
 
-        // --- Helper: Angle Calculation ---
+        // --- Helpers ---
         function calculateAngle(a, b, c) {
             const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
             let angle = Math.abs(radians * 180.0 / Math.PI);
@@ -603,7 +578,6 @@ yolo export model=best.pt format=tfjs</div>
             return Math.round(angle);
         }
 
-        // --- Drawing Helpers ---
         function drawPose(keypoints) {
             const minConf = 0.3;
             const connections = poseDetection.util.getAdjacentPairs(poseDetection.SupportedModels.MoveNet);
@@ -611,7 +585,6 @@ yolo export model=best.pt format=tfjs</div>
             ctx.shadowColor = '#FFD60A'; ctx.shadowBlur = 10; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
             ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
             
-            // 1. Draw Lines
             connections.forEach(([i, j]) => {
                 const kp1 = keypoints[i]; const kp2 = keypoints[j];
                 if (kp1.score > minConf && kp2.score > minConf) {
@@ -619,13 +592,11 @@ yolo export model=best.pt format=tfjs</div>
                 }
             });
 
-            // 2. Draw Points
             ctx.fillStyle = '#FFD60A';
             keypoints.forEach(kp => {
                 if (kp.score > minConf) { ctx.beginPath(); ctx.arc(kp.x, kp.y, 6, 0, 2 * Math.PI); ctx.fill(); }
             });
 
-            // 3. Draw Angles (If Enabled)
             if (showAngles) {
                 ctx.font = 'bold 18px monospace';
                 ctx.fillStyle = '#00E5FF'; 
@@ -643,14 +614,12 @@ yolo export model=best.pt format=tfjs</div>
                     const A = keypoints[joint.pts[0]];
                     const B = keypoints[joint.pts[1]];
                     const C = keypoints[joint.pts[2]];
-
                     if (A && B && C && A.score > minConf && B.score > minConf && C.score > minConf) {
                         const angle = calculateAngle(A, B, C);
                         ctx.fillText(`${angle}°`, B.x + 15, B.y);
                     }
                 });
             }
-
             ctx.shadowBlur = 0;
         }
 
@@ -708,12 +677,10 @@ yolo export model=best.pt format=tfjs</div>
             setTimeout(() => infoOverlay.style.display = 'none', 300);
         });
         
-        // Toggle Angle Setting
         document.getElementById('toggle-angles').addEventListener('change', (e) => {
             showAngles = e.target.checked;
         });
 
-        // Mode Switch
         const modeItems = document.querySelectorAll('.mode-item');
         modeItems.forEach(item => {
             item.addEventListener('click', (e) => {
@@ -726,7 +693,6 @@ yolo export model=best.pt format=tfjs</div>
             });
         });
 
-        // Torch & Shutter
         document.getElementById('btn-flash').addEventListener('click', async () => {
             if (!currentStream) return;
             const track = currentStream.getVideoTracks()[0];
