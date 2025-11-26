@@ -1,5 +1,5 @@
 // VERSION v5 - Update erzwingen
-const CACHE_NAME = 'pose-cam-v1.1'; 
+const CACHE_NAME = 'pose-cam-v1.2'; 
 
 const urlsToCache = [
   './',
